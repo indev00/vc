@@ -1,0 +1,2905 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <title>Binance Futures Trade Stream Visualizer</title>
+  <style>
+    body {
+      margin: 0;
+      background: #111;
+      color: #eee;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    #controls {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;           /* 여러 줄 표시 (스크롤바 제거) */
+      gap: 6px;
+      padding: 6px 8px;
+      background: #181818;
+      border-bottom: 1px solid #333;
+      font-size: 11px;           /* 전체 글씨 크기 축소 */
+      box-sizing: border-box;
+      overflow: hidden;          /* 스크롤바 숨김 */
+    }
+    button.symbol-btn {
+      padding: 3px 7px;
+      border-radius: 4px;
+      border: 1px solid #555;
+      background: #222;
+      color: #eee;
+      cursor: pointer;
+      font-size: 11px;
+    }
+    button.symbol-btn.active {
+      background: #3b82f6;
+      border-color: #60a5fa;
+      color: #fff;
+    }
+
+    .symbol-picker {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 2px 5px;
+      border: 1px solid #333;
+      border-radius: 6px;
+      background: rgba(0,0,0,0.15);
+    }
+    .symbol-picker .label {
+      color: rgba(255,255,255,0.7);
+    }
+    .symbol-input {
+      width: 110px;
+      padding: 3px 6px;
+      border-radius: 4px;
+      border: 1px solid #444;
+      background: #111;
+      color: #eee;
+      font-size: 11px;
+      outline: none;
+    }
+    .symbol-input:focus {
+      border-color: #60a5fa;
+      box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.15);
+    }
+    #status {
+      font-size: 11px;
+      opacity: 0.8;
+    }
+    #status span.dot {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      margin-right: 4px;
+      background: #f87171;
+    }
+    #status.connected span.dot {
+      background: #4ade80;
+    }
+    #info {
+      font-size: 12px;
+      opacity: 0.8;
+    }
+    #canvasContainer {
+      position: absolute;
+      top: 44px; /* 실제 top은 JS에서 controls 높이에 맞춰 동적으로 설정 */
+      left: 0;
+      right: 0;
+      bottom: 0;
+      overflow: hidden;
+    }
+    canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+      background: #050505;
+    }
+
+    /* 선택 영역 거래 요약 모달 */
+    .modal.hidden {
+      display: none;
+    }
+    .modal {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 50;
+      pointer-events: none;
+    }
+    .modal-backdrop {
+      position: absolute;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.6);
+      backdrop-filter: blur(2px);
+      pointer-events: auto;
+    }
+    .modal-content {
+      position: relative;
+      max-width: 720px;
+      width: calc(100% - 40px);
+      max-height: 80vh;
+      background: #18181b;
+      border-radius: 10px;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.7);
+      border: 1px solid #27272f;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      pointer-events: auto;
+    }
+    .modal-header {
+      padding: 10px 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid #27272f;
+      background: radial-gradient(circle at top left, rgba(59, 130, 246, 0.3), transparent 60%);
+    }
+    .modal-title {
+      font-size: 14px;
+      font-weight: 600;
+    }
+    .modal-close {
+      border: none;
+      background: transparent;
+      color: #a1a1aa;
+      font-size: 18px;
+      cursor: pointer;
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+    .modal-close:hover {
+      background: rgba(255, 255, 255, 0.05);
+      color: #e5e5e5;
+    }
+    .modal-body {
+      padding: 10px 14px 12px;
+      font-size: 12px;
+      overflow: auto;
+    }
+    .modal-summary {
+      margin-bottom: 8px;
+      color: #d4d4d8;
+    }
+    .modal-summary strong {
+      color: #e5e5e5;
+    }
+    .modal-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+    .modal-table thead {
+      position: sticky;
+      top: 0;
+      background: #18181b;
+      z-index: 1;
+    }
+    .modal-table th,
+    .modal-table td {
+      padding: 4px 6px;
+      text-align: right;
+      border-bottom: 1px solid #27272f;
+      white-space: nowrap;
+    }
+    .modal-table th:first-child,
+    .modal-table td:first-child {
+      text-align: left;
+    }
+    .modal-table th {
+      font-weight: 500;
+      color: #a1a1aa;
+    }
+    .modal-table tbody tr:nth-child(even) {
+      background: rgba(24, 24, 27, 0.75);
+    }
+    .modal-table tbody tr:hover {
+      background: rgba(39, 39, 42, 0.9);
+    }
+    .modal-table tbody tr.section-row td {
+      text-align: left;
+      font-weight: 600;
+      color: #e5e5e5;
+      background: rgba(59, 130, 246, 0.10);
+      border-bottom: 1px solid rgba(96, 165, 250, 0.25);
+      padding-top: 6px;
+      padding-bottom: 6px;
+    }
+    .side-buy {
+      color: #4ade80;
+    }
+    .side-sell {
+      color: #f97373;
+    }
+  </style>
+</head>
+<body>
+  <div id="controls">
+    <button class="symbol-btn" data-symbol="BTCUSDT">BTC</button>
+    <button class="symbol-btn active" data-symbol="ETHUSDT">ETH</button>
+    <button class="symbol-btn" data-symbols="BTCUSDT,ETHUSDT,SOLUSDT">비이솔</button>
+    <button class="symbol-btn" data-symbol="BTCUSDT" data-market="spot">BTC(현물)</button>
+    <button class="symbol-btn" data-symbol="ETHUSDT" data-market="spot">ETH(현물)</button>
+
+    <div class="symbol-picker">
+      <input id="futuresSymbolInput" class="symbol-input" list="futuresSymbols" placeholder="" autocomplete="off" spellcheck="false" />
+      <datalist id="futuresSymbols"></datalist>
+    </div>
+
+    <button class="symbol-btn" id="pipBtn">PIP</button>
+
+    <div id="status"><span class="dot"></span><span class="text">연결 준비중…</span></div>
+  </div>
+  <div id="canvasContainer">
+    <canvas id="chart"></canvas>
+  </div>
+
+  <!-- 선택 영역 거래 요약 모달 -->
+  <div id="selectionModal" class="modal hidden">
+    <div class="modal-backdrop"></div>
+    <div class="modal-content">
+      <div class="modal-header">
+        <span class="modal-title">선택 영역 거래 요약</span>
+        <button id="modalCloseBtn" class="modal-close" type="button">×</button>
+      </div>
+      <div class="modal-body">
+        <div id="selectionSummary" class="modal-summary">
+          선택된 거래가 없습니다.
+        </div>
+        <table class="modal-table" id="selectionTable">
+          <thead>
+            <tr>
+              <th>방향</th>
+              <th>수량</th>
+              <th>점 개수</th>
+              <th>합계 수량</th>
+              <th>총 노셔널 (USDT)</th>
+              <th>평균 노셔널/점</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ===== 설정값 =====
+    const WS_BASE_FUTURES = "wss://fstream.binance.com/ws";
+    const WS_BASE_SPOT = "wss://stream.binance.com:9443/ws";
+    const FUTURES_EXCHANGE_INFO_URL = "https://fapi.binance.com/fapi/v1/exchangeInfo";
+    const GROUP_TIME_THRESHOLD_MS = 1;        // 연속 ms 허용 범위 (단일거래로 묶는 시간 간격: 동일 ms 또는 +1ms 만 허용)
+    const MIN_NOTIONAL = 2;                 // 노셔널 하한 (Y축 로그 스케일 기준)
+    const MIN_NOTIONAL_MAJOR = 50;           // BTCUSDT, ETHUSDT용 필터 임계값
+    const MAX_NOTIONAL = 10_000_000;              // 노셔널 상한 (Y축 최상단 고정 기준)
+    const WINDOW_MS = 5 * 60 * 1000;          // 그래프 롤링 윈도우
+    const POINT_RADIUS_MIN = 1;               // 최소 점 반경
+    const POINT_RADIUS_MAX = 1;              // 최대 점 반경
+    const PRICE_SCALE_WIDTH = 60;            // 왼쪽 가격 스케일 너비
+
+    // ===== Greedy 연결 설정값 =====
+    const PATH_ENABLED = false;
+    const PATH_UPDATE_INTERVAL_MS = 10 * 1000; // 연결 계산 주기 (10초)
+    const PATH_MAX_TIME_GAP_MS = 3000;        // 연결 최대 시간 간격 (3초)
+    const PATH_MAX_Y_RATIO_DIFF = 0.008;       // 연결 최대 yRatio 차이 (화면 높이의 2%)
+    const PATH_MIN_LENGTH = 10;               // 최소 path 길이 (이하 시각화 제외)
+    const PATH_ALPHA = 1.0;                   // 스코어 가중치: Y거리 차이
+    const PATH_BETA = 0.25;                   // 스코어 가중치: 시간 차이
+    const PATH_MAX_EVENTS = 5000;            // 최대 처리 점 개수 (초과 시 계산 건너뜀)
+
+    // ===== 유틸: 심볼별 노셔널 필터링 =====
+    function getThreshold(symbol) {
+      return (symbol === "BTCUSDT" || symbol === "ETHUSDT") ? MIN_NOTIONAL_MAJOR : MIN_NOTIONAL;
+    }
+
+    function isBelowThreshold(symbol, notional) {
+      return notional < getThreshold(symbol);
+    }
+
+    // ===== BTCUSDT 전용: 하이브리드 스케일(선형 + 로그) =====
+    // - BTCUSDT 단독 선택 시에만 적용
+    // - 2,000 USDT 미만: 선형으로 펼침
+    // - 2,000 USDT 이상: 기존 로그 스케일 그대로 (연속성 보장)
+    const BTC_HYBRID_NOTIONAL_SPLIT = 2_000;
+
+    function makeNotionalYRatioMapper(dynamicMinNotional, symbolsSnapshot) {
+      const minN =
+        Number.isFinite(dynamicMinNotional) && dynamicMinNotional > 0
+          ? dynamicMinNotional
+          : MIN_NOTIONAL;
+
+      const isBtcOnlyView =
+        Array.isArray(symbolsSnapshot) &&
+        symbolsSnapshot.length === 1 &&
+        symbolsSnapshot[0] === "BTCUSDT";
+
+      const logMin = Math.log10(minN);
+      const logMax = Math.log10(MAX_NOTIONAL);
+      const split = BTC_HYBRID_NOTIONAL_SPLIT;
+
+      const calcLogRatio = (value) => {
+        const v = Math.max(value, minN);
+        const ln = Math.log10(v);
+        const t = (ln - logMin) / (logMax - logMin || 1);
+        return Math.min(Math.max(t, 0), 1);
+      };
+
+      // split 지점의 로그 비율(연속성 확보용)
+      const tSplit =
+        isBtcOnlyView && split > minN
+          ? calcLogRatio(split)
+          : null;
+
+      return (notional) => {
+        const nRaw = Number.isFinite(notional) ? notional : minN;
+        const n = Math.max(nRaw, minN);
+
+        // 기본: 전체 로그 스케일 (기존 동작)
+        if (!isBtcOnlyView || split <= minN) return calcLogRatio(n);
+
+        // split 이상은 기존 로그 스케일 그대로
+        if (n >= split) return calcLogRatio(n);
+
+        // split 미만은 선형(0..tSplit)로 매핑
+        const lin = (n - minN) / (split - minN || 1);
+        const linClamped = Math.min(Math.max(lin, 0), 1);
+        return linClamped * (tSplit || 0);
+      };
+    }
+
+    function makeNotionalYMapper(height, dynamicMinNotional, symbolsSnapshot) {
+      const ratioOf = makeNotionalYRatioMapper(dynamicMinNotional, symbolsSnapshot);
+      return (notional) => {
+        const t = ratioOf(notional);
+        return height - t * height;
+      };
+    }
+
+    // ===== DOM =====
+    const controlsEl = document.getElementById("controls");
+    const canvasContainer = document.getElementById("canvasContainer");
+    const canvas = document.getElementById("chart");
+    const ctx = canvas.getContext("2d");
+    const statusEl = document.getElementById("status");
+    const statusText = statusEl.querySelector(".text");
+    const symbolButtons = document.querySelectorAll(".symbol-btn[data-symbol], .symbol-btn[data-symbols]");
+    const pipBtn = document.getElementById("pipBtn");
+    const futuresSymbolInput = document.getElementById("futuresSymbolInput");
+    const futuresSymbolsDatalist = document.getElementById("futuresSymbols");
+    const selectionModal = document.getElementById("selectionModal");
+    const selectionSummary = document.getElementById("selectionSummary");
+    const selectionTableBody = document.querySelector("#selectionTable tbody");
+    const modalCloseBtn = document.getElementById("modalCloseBtn");
+
+    // 캔버스 리사이즈
+    function resizeCanvas() {
+      const rect = canvas.getBoundingClientRect();
+      canvas.width = rect.width * window.devicePixelRatio;
+      canvas.height = rect.height * window.devicePixelRatio;
+      ctx.setTransform(window.devicePixelRatio, 0, 0, window.devicePixelRatio, 0, 0);
+    }
+    function layout() {
+      // controls 높이에 따라 캔버스 영역을 아래로 밀기 (버튼이 늘어나도 안 잘리게)
+      const h = controlsEl.getBoundingClientRect().height;
+      canvasContainer.style.top = `${h}px`;
+      resizeCanvas();
+    }
+    window.addEventListener("resize", layout);
+    layout();
+
+    // ===== 상태 =====
+    let currentSymbol = "ETHUSDT"; // 단일 선택 시 표시/기본값
+    let currentMarket = "futures"; // "futures" | "spot"
+    let sockets = []; // 여러 웹소켓을 관리 (선물+현물 동시 연결용)
+    
+    // ===== 재연결 설정 =====
+    const RECONNECT_MAX_RETRIES = 10;        // 최대 재연결 시도 횟수
+    const RECONNECT_BASE_DELAY_MS = 1000;    // 기본 재연결 대기 시간 (1초)
+    const RECONNECT_MAX_DELAY_MS = 30000;    // 최대 재연결 대기 시간 (30초)
+    let reconnectAttempts = 0;               // 현재 재연결 시도 횟수
+    let reconnectTimeoutId = null;           // 재연결 타이머 ID
+    let intentionalClose = false;            // 의도적인 연결 종료 여부
+    let futuresSymbolSet = new Set(); // exchangeInfo 기반 (선물 전용)
+
+    // 단일거래 그룹 상태
+    let currentSymbols = new Set(["ETHUSDT"]); // 멀티 선택 지원
+    let currentGroups = new Map();             // symbol+market -> group (선물/현물 구분)
+    let events = []; // 단일거래 이벤트 리스트
+    // 선물/현물 최신 가격 추적 (bps 계산용)
+    let latestPrices = { futures: null, spot: null };
+    let hoverEvent = null; // 마우스로 가리키는 이벤트
+    let lastDrawState = null; // 마지막 그리기 시의 시간/크기 상태
+    let pipWindow = null;     // Document PiP 윈도우
+    let pipCanvas = null;
+    let pipCtx = null;
+    // 드래그 선택 상태
+    let isDragging = false;
+    let dragStart = null;
+    let dragCurrent = null;
+    // 수신 트레이드 큐 (폭주 시 프레임 단위로 처리)
+    // Array.shift()는 O(n)이라서 head 인덱스로 큐를 구현
+    let tradeQueue = [];
+    let tradeQueueHead = 0;
+    // 마지막으로 "처리 완료"한 트레이드의 거래시간(ms). 렌더 시간축을 데이터 기준으로 맞추기 위함
+    let lastProcessedTradeTs = 0;
+    // events 배열의 앞부분을 shift로 제거하면 O(n)이라서, 시작 인덱스로 관리
+    let eventsStartIdx = 0;
+    // 히트맵 격자 캐시 (1초마다 업데이트)
+    let heatmapGrid = null;
+    let lastHeatmapUpdate = 0;
+
+    // OI (Open Interest) 추적 상태
+    let oiData = []; // [{time, oi, symbol, price}]
+    let oiWorker = null; // Web Worker 기반 타이머 (탭 비활성 시에도 정확히 동작)
+    const OI_FETCH_INTERVAL_MS = 3000; // 3초
+    const OI_API_URL = "https://fapi.binance.com/fapi/v1/openInterest";
+    const OI_DELTA_THRESHOLD_USD = 1_000_000; // 델타 라벨 표시 기준 (1M USDT)
+
+    // Greedy 연결 paths 캐시 (10초마다 업데이트)
+    let cachedPaths = [];
+    let lastPathUpdate = 0;
+
+    // 초기 가격 범위 캐시 (klines에서 로드, 심볼별)
+    // { symbol: { min, max, loadedAt } }
+    let initialPriceRanges = new Map();
+
+    // ===== 유틸: 노셔널 → Y좌표 (로그 스케일) =====
+    function notionalToY(notional, height) {
+      if (!Number.isFinite(notional) || notional <= 0) return height;
+      const logMin = Math.log10(MIN_NOTIONAL);
+      const logMax = Math.log10(MAX_NOTIONAL);
+      const ln = Math.log10(Math.max(notional, MIN_NOTIONAL));
+      const t = (ln - logMin) / (logMax - logMin || 1);
+      const clamped = Math.min(Math.max(t, 0), 1);
+      return height - clamped * height;
+    }
+
+    // ===== 유틸: 숫자 축약 표기 (K/M/B) =====
+    function formatBmk(n) {
+      if (!Number.isFinite(n)) return "-";
+      const sign = n < 0 ? "-" : "";
+      const v = Math.abs(n);
+      if (v >= 1e9) return `${sign}${(v / 1e9).toFixed(v >= 1e10 ? 0 : 2)}B`;
+      if (v >= 1e6) return `${sign}${(v / 1e6).toFixed(v >= 1e7 ? 0 : 2)}M`;
+      if (v >= 1e3) return `${sign}${(v / 1e3).toFixed(v >= 1e4 ? 0 : 2)}K`;
+      return `${sign}${v.toFixed(0)}`;
+    }
+
+    function formatComma(n) {
+      if (!Number.isFinite(n)) return "-";
+      return Math.round(n).toLocaleString();
+    }
+
+    function setStatus(connected, text) {
+      statusEl.classList.toggle("connected", connected);
+      statusText.textContent = text;
+    }
+
+    function buildWsUrl(market, symbols, includeForceOrder = false) {
+      const lowerStreams = symbols.map(s => `${s.toLowerCase()}@trade`);
+      // 선물에서 강제청산 스트림 추가
+      if (includeForceOrder && market === "futures") {
+        for (const s of symbols) {
+          lowerStreams.push(`${s.toLowerCase()}@forceOrder`);
+        }
+      }
+      if (lowerStreams.length <= 1) {
+        const wsBase = market === "spot" ? WS_BASE_SPOT : WS_BASE_FUTURES;
+        return `${wsBase}/${lowerStreams[0]}`;
+      }
+      // Combined stream
+      const base = market === "spot"
+        ? "wss://stream.binance.com:9443/stream?streams="
+        : "wss://fstream.binance.com/stream?streams=";
+      return base + lowerStreams.join("/");
+    }
+
+    // ===== 선물 exchangeInfo 심볼 목록 =====
+    function setFuturesSymbolOptions(symbols) {
+      futuresSymbolsDatalist.innerHTML = "";
+      // 옵션이 너무 많아도 datalist는 동작하지만, 렌더 비용을 줄이기 위해 정렬만 수행
+      const sorted = [...symbols].sort();
+      const frag = document.createDocumentFragment();
+      for (const sym of sorted) {
+        const opt = document.createElement("option");
+        opt.value = sym;
+        frag.appendChild(opt);
+      }
+      futuresSymbolsDatalist.appendChild(frag);
+      futuresSymbolSet = new Set(sorted);
+    }
+
+    async function loadFuturesExchangeInfo() {
+      try {
+        const res = await fetch(FUTURES_EXCHANGE_INFO_URL, { cache: "no-store" });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const json = await res.json();
+        const symbols = (json.symbols || [])
+          .filter(s =>
+            s &&
+            s.symbol &&
+            // s.status === "TRADING" && // 상장 직후 심볼도 포함
+            // 선물에 한해서: 보통 USDT-M Perpetual 위주로 사용
+            (s.contractType === "PERPETUAL")
+          )
+          .map(s => s.symbol);
+
+        setFuturesSymbolOptions(symbols);
+      } catch (err) {
+        console.error("exchangeInfo load failed", err);
+      }
+    }
+
+    // ===== 초기 가격 범위 로드 (klines API) =====
+    async function loadInitialPriceRange(symbol, market = "futures") {
+      try {
+        // 선물/현물에 따라 API URL 결정
+        const baseUrl = market === "spot"
+          ? "https://api.binance.com/api/v3/klines"
+          : "https://fapi.binance.com/fapi/v1/klines";
+        
+        // 최근 10분 데이터 (1분봉 10개)
+        const url = `${baseUrl}?symbol=${symbol}&interval=1m&limit=10`;
+        const res = await fetch(url, { cache: "no-store" });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        
+        const klines = await res.json();
+        if (!klines || !klines.length) return;
+        
+        // kline 구조: [openTime, open, high, low, close, volume, closeTime, ...]
+        let minPrice = Infinity;
+        let maxPrice = -Infinity;
+        
+        for (const k of klines) {
+          const high = parseFloat(k[2]);
+          const low = parseFloat(k[3]);
+          if (Number.isFinite(high) && high > maxPrice) maxPrice = high;
+          if (Number.isFinite(low) && low < minPrice) minPrice = low;
+        }
+        
+        if (Number.isFinite(minPrice) && Number.isFinite(maxPrice) && minPrice < maxPrice) {
+          // 약간의 여유 추가 (상하 0.1%)
+          const padding = (maxPrice - minPrice) * 0.001;
+          initialPriceRanges.set(symbol, {
+            min: minPrice - padding,
+            max: maxPrice + padding,
+            loadedAt: Date.now()
+          });
+          console.log(`[klines] ${symbol} 초기 가격 범위 로드: ${minPrice.toFixed(2)} ~ ${maxPrice.toFixed(2)}`);
+        }
+      } catch (err) {
+        console.error(`[klines] ${symbol} 가격 범위 로드 실패:`, err);
+      }
+    }
+
+    // 여러 심볼의 초기 가격 범위를 병렬로 로드
+    async function loadInitialPriceRanges(symbols, market = "futures") {
+      const promises = symbols.map(sym => loadInitialPriceRange(sym, market));
+      await Promise.all(promises);
+    }
+
+    // ===== OI (Open Interest) 3초 주기 폴링 =====
+    async function fetchOpenInterest() {
+      if (!currentSymbols || currentSymbols.size === 0) return;
+      if (currentMarket === "spot") return; // OI는 선물에서만 존재
+
+      const symbols = [...currentSymbols];
+      const now = Date.now();
+      for (const symbol of symbols) {
+        try {
+          const res = await fetch(`${OI_API_URL}?symbol=${symbol}`, { cache: "no-store" });
+          if (!res.ok) continue;
+          const json = await res.json();
+          const oi = parseFloat(json.openInterest);
+          if (!Number.isFinite(oi)) continue;
+          // 현재 가격 추적 (노셔널 델타 계산용)
+          let price = 0;
+          for (let i = events.length - 1; i >= eventsStartIdx; i--) {
+            if (events[i].symbol === symbol && events[i].avgPrice) {
+              price = events[i].avgPrice;
+              break;
+            }
+          }
+          oiData.push({ time: now, oi, symbol, price });
+        } catch (err) {
+          console.error(`[OI] ${symbol} fetch failed:`, err);
+        }
+      }
+      // 15분 이상 된 데이터 제거
+      const cutoff = now - 15 * 60 * 1000;
+      oiData = oiData.filter(d => d.time >= cutoff);
+    }
+
+    function startOITracking() {
+      stopOITracking();
+      fetchOpenInterest(); // 즉시 1회 조회
+      // Web Worker 기반 타이머 (탭 비활성 시에도 throttle 없이 정확한 간격 유지)
+      const workerCode = `
+        let tid = null;
+        self.onmessage = function(e) {
+          if (e.data === 'start') {
+            if (tid) clearInterval(tid);
+            tid = setInterval(() => self.postMessage('tick'), ${OI_FETCH_INTERVAL_MS});
+          } else if (e.data === 'stop') {
+            if (tid) { clearInterval(tid); tid = null; }
+          }
+        };
+      `;
+      const blob = new Blob([workerCode], { type: 'application/javascript' });
+      oiWorker = new Worker(URL.createObjectURL(blob));
+      oiWorker.onmessage = () => fetchOpenInterest();
+      oiWorker.postMessage('start');
+    }
+
+    function stopOITracking() {
+      if (oiWorker) {
+        oiWorker.postMessage('stop');
+        oiWorker.terminate();
+        oiWorker = null;
+      }
+    }
+
+    // ===== WebSocket 연결 =====
+    function closeAllSockets() {
+      // 의도적인 연결 종료 표시 (재연결 방지)
+      intentionalClose = true;
+      
+      // OI 추적 중지
+      stopOITracking();
+      
+      // 재연결 타이머 취소
+      if (reconnectTimeoutId) {
+        clearTimeout(reconnectTimeoutId);
+        reconnectTimeoutId = null;
+      }
+      reconnectAttempts = 0;
+      
+      for (const ws of sockets) {
+        if (ws) {
+          ws.onopen = ws.onclose = ws.onerror = ws.onmessage = null;
+          ws.close();
+        }
+      }
+      sockets = [];
+    }
+
+    function createSocket(url, onMessage) {
+      const ws = new WebSocket(url);
+      
+      ws.onopen = () => {
+        // 연결 성공 시 재연결 카운터 초기화
+        reconnectAttempts = 0;
+        // 모든 소켓 중 하나라도 열려있으면 connected로 표시
+        const anyOpen = sockets.some(s => s && s.readyState === WebSocket.OPEN);
+        if (anyOpen) setStatus(true, ``);
+      };
+
+      ws.onclose = () => {
+        // 모든 소켓이 닫히면 disconnected로 표시
+        const anyOpen = sockets.some(s => s && s.readyState === WebSocket.OPEN);
+        if (!anyOpen) {
+          setStatus(false, ``);
+          // 의도적인 종료가 아니면 재연결 시도
+          if (!intentionalClose) {
+            scheduleReconnect();
+          }
+        }
+      };
+
+      ws.onerror = (e) => {
+        console.error("WebSocket error", e);
+      };
+
+      ws.onmessage = onMessage;
+
+      return ws;
+    }
+    
+    // 재연결 스케줄링 (지수 백오프)
+    function scheduleReconnect() {
+      if (reconnectAttempts >= RECONNECT_MAX_RETRIES) {
+        setStatus(false, `재연결 실패 (${RECONNECT_MAX_RETRIES}회 시도)`);
+        console.error("Max reconnection attempts reached");
+        return;
+      }
+      
+      // 이미 재연결 예약이 있으면 무시
+      if (reconnectTimeoutId) return;
+      
+      reconnectAttempts++;
+      // 지수 백오프: 1초, 2초, 4초, 8초... (최대 30초)
+      const delay = Math.min(
+        RECONNECT_BASE_DELAY_MS * Math.pow(2, reconnectAttempts - 1),
+        RECONNECT_MAX_DELAY_MS
+      );
+      
+      setStatus(false, `재연결 중... (${reconnectAttempts}/${RECONNECT_MAX_RETRIES})`);
+      console.log(`Reconnecting in ${delay}ms (attempt ${reconnectAttempts}/${RECONNECT_MAX_RETRIES})`);
+      
+      reconnectTimeoutId = setTimeout(() => {
+        reconnectTimeoutId = null;
+        performReconnect();
+      }, delay);
+    }
+    
+    // 실제 재연결 수행
+    function performReconnect() {
+      // 이미 연결되어 있으면 무시
+      const anyOpen = sockets.some(s => s && s.readyState === WebSocket.OPEN);
+      if (anyOpen) {
+        reconnectAttempts = 0;
+        return;
+      }
+      
+      console.log(`Attempting reconnection for ${currentSymbol} (${currentMarket})`);
+      
+      // 기존 연결 정보를 사용하여 재연결
+      if (currentMarket === "both") {
+        // 선물+현물 동시 연결 재연결
+        reconnectBothMarkets(currentSymbol);
+      } else {
+        // 단일 마켓 재연결
+        reconnectSingleMarket(currentSymbols, currentMarket);
+      }
+    }
+    
+    // 단일 마켓 재연결 (데이터 유지)
+    function reconnectSingleMarket(symbols, market) {
+      // 기존 소켓만 정리 (데이터는 유지)
+      for (const ws of sockets) {
+        if (ws) {
+          ws.onopen = ws.onclose = ws.onerror = ws.onmessage = null;
+          ws.close();
+        }
+      }
+      sockets = [];
+      
+      const symbolArray = Array.from(symbols);
+      const url = buildWsUrl(market, symbolArray, true); // 강제청산 스트림 포함
+      
+      const onMessage = (msg) => {
+        try {
+          const parsed = JSON.parse(msg.data);
+          const streamName = parsed && parsed.stream ? parsed.stream : null;
+          const data = parsed && parsed.data ? parsed.data : parsed;
+          if (data && data.s && !currentSymbols.has(data.s)) return;
+          
+          // 강제청산 스트림 처리
+          if (streamName && streamName.includes("@forceOrder")) {
+            const order = data.o;
+            if (order && order.s && currentSymbols.has(order.s)) {
+              data._isForceOrder = true;
+              data._forceOrderData = order;
+              tradeQueue.push(data);
+            }
+          } else {
+            tradeQueue.push(data);
+          }
+          
+          if (tradeQueueHead > 5000) {
+            tradeQueue = tradeQueue.slice(tradeQueueHead);
+            tradeQueueHead = 0;
+          }
+        } catch (e) {
+          console.error("parse error", e);
+        }
+      };
+      
+      sockets.push(createSocket(url, onMessage));
+    }
+    
+    // 선물+현물 동시 재연결 (데이터 유지)
+    function reconnectBothMarkets(symbol) {
+      // 기존 소켓만 정리 (데이터는 유지)
+      for (const ws of sockets) {
+        if (ws) {
+          ws.onopen = ws.onclose = ws.onerror = ws.onmessage = null;
+          ws.close();
+        }
+      }
+      sockets = [];
+      
+      const onFuturesMessage = (msg) => {
+        try {
+          const parsed = JSON.parse(msg.data);
+          const streamName = parsed && parsed.stream ? parsed.stream : null;
+          const data = parsed && parsed.data ? parsed.data : parsed;
+          if (data && data.s && !currentSymbols.has(data.s)) return;
+          
+          // 강제청산 스트림 처리
+          if (streamName && streamName.includes("@forceOrder")) {
+            const order = data.o;
+            if (order && order.s && currentSymbols.has(order.s)) {
+              data._isForceOrder = true;
+              data._forceOrderData = order;
+              data._market = "futures";
+              tradeQueue.push(data);
+            }
+          } else {
+            data._market = "futures";
+            tradeQueue.push(data);
+          }
+          
+          if (tradeQueueHead > 5000) {
+            tradeQueue = tradeQueue.slice(tradeQueueHead);
+            tradeQueueHead = 0;
+          }
+        } catch (e) {
+          console.error("parse error", e);
+        }
+      };
+      
+      const onSpotMessage = (msg) => {
+        try {
+          const parsed = JSON.parse(msg.data);
+          const data = parsed && parsed.data ? parsed.data : parsed;
+          if (data && data.s && !currentSymbols.has(data.s)) return;
+          data._market = "spot";
+          tradeQueue.push(data);
+          if (tradeQueueHead > 5000) {
+            tradeQueue = tradeQueue.slice(tradeQueueHead);
+            tradeQueueHead = 0;
+          }
+        } catch (e) {
+          console.error("parse error", e);
+        }
+      };
+      
+      const futuresUrl = buildWsUrl("futures", [symbol], true); // 강제청산 스트림 포함
+      const spotUrl = buildWsUrl("spot", [symbol]);
+      
+      sockets.push(createSocket(futuresUrl, onFuturesMessage));
+      sockets.push(createSocket(spotUrl, onSpotMessage));
+    }
+
+    function connect(symbolOrSymbols, market = "futures") {
+      closeAllSockets();
+      intentionalClose = false; // 새 연결 시작, 재연결 허용
+
+      const symbols = Array.isArray(symbolOrSymbols)
+        ? symbolOrSymbols
+        : [symbolOrSymbols];
+      currentSymbol = symbols[0] || currentSymbol;
+      currentMarket = market;
+      currentSymbols = new Set(symbols);
+      currentGroups = new Map();
+      events = [];
+      eventsStartIdx = 0;
+      tradeQueue = [];
+      tradeQueueHead = 0;
+      lastProcessedTradeTs = 0;
+      cachedPaths = [];
+      lastPathUpdate = 0;
+      latestPrices = { futures: null, spot: null }; // 가격 추적 초기화
+      initialPriceRanges.clear(); // 초기 가격 범위 초기화
+      oiData = []; // OI 데이터 초기화
+      draw();
+      
+      // 초기 가격 범위 로드 (비동기, 웹소켓 연결과 병렬)
+      loadInitialPriceRanges(symbols, market);
+      // OI 추적 시작
+      startOITracking();
+
+      const url = buildWsUrl(market, symbols, true); // 선물일 때 강제청산 스트림 포함
+      setStatus(false, ``);
+
+      const onMessage = (msg) => {
+        try {
+          const parsed = JSON.parse(msg.data);
+          // combined stream이면 { stream, data } 형태
+          const streamName = parsed && parsed.stream ? parsed.stream : null;
+          const data = parsed && parsed.data ? parsed.data : parsed;
+          // 심볼이 다르면 초기에 컷 (불필요한 큐 적재 방지)
+          if (data && data.s && !currentSymbols.has(data.s)) return;
+          
+          // 강제청산 스트림 처리 (@forceOrder)
+          if (streamName && streamName.includes("@forceOrder")) {
+            // forceOrder 이벤트 구조: { e: "forceOrder", E: timestamp, o: { s, S, o, f, q, p, ap, X, l, z, T } }
+            const order = data.o;
+            if (order && order.s && currentSymbols.has(order.s)) {
+              data._isForceOrder = true;
+              data._forceOrderData = order;
+              tradeQueue.push(data);
+            }
+          } else {
+            // 일반 트레이드
+            tradeQueue.push(data);
+          }
+
+          // head가 많이 진행되면 한 번에 정리
+          if (tradeQueueHead > 5000) {
+            tradeQueue = tradeQueue.slice(tradeQueueHead);
+            tradeQueueHead = 0;
+          }
+        } catch (e) {
+          console.error("parse error", e);
+        }
+      };
+
+      sockets.push(createSocket(url, onMessage));
+    }
+
+    // 선물+현물 동시 연결 (우클릭용)
+    function connectBothMarkets(symbol) {
+      closeAllSockets();
+      intentionalClose = false; // 새 연결 시작, 재연결 허용
+
+      currentSymbol = symbol;
+      currentMarket = "both"; // 선물+현물 동시
+      currentSymbols = new Set([symbol]);
+      currentGroups = new Map();
+      events = [];
+      eventsStartIdx = 0;
+      tradeQueue = [];
+      tradeQueueHead = 0;
+      lastProcessedTradeTs = 0;
+      cachedPaths = [];
+      lastPathUpdate = 0;
+      // 가격 추적 초기화
+      latestPrices = { futures: null, spot: null };
+      initialPriceRanges.clear(); // 초기 가격 범위 초기화
+      oiData = []; // OI 데이터 초기화
+      draw();
+      
+      // 초기 가격 범위 로드 (선물 기준, 비동기)
+      loadInitialPriceRange(symbol, "futures");
+      // OI 추적 시작
+      startOITracking();
+
+      setStatus(false, ``);
+
+      // 선물용 메시지 핸들러
+      const onFuturesMessage = (msg) => {
+        try {
+          const parsed = JSON.parse(msg.data);
+          const streamName = parsed && parsed.stream ? parsed.stream : null;
+          const data = parsed && parsed.data ? parsed.data : parsed;
+          if (data && data.s && !currentSymbols.has(data.s)) return;
+          
+          // 강제청산 스트림 처리
+          if (streamName && streamName.includes("@forceOrder")) {
+            const order = data.o;
+            if (order && order.s && currentSymbols.has(order.s)) {
+              data._isForceOrder = true;
+              data._forceOrderData = order;
+              data._market = "futures";
+              tradeQueue.push(data);
+            }
+          } else {
+            data._market = "futures"; // 마켓 타입 추가
+            tradeQueue.push(data);
+          }
+
+          if (tradeQueueHead > 5000) {
+            tradeQueue = tradeQueue.slice(tradeQueueHead);
+            tradeQueueHead = 0;
+          }
+        } catch (e) {
+          console.error("parse error", e);
+        }
+      };
+
+      // 현물용 메시지 핸들러
+      const onSpotMessage = (msg) => {
+        try {
+          const parsed = JSON.parse(msg.data);
+          const data = parsed && parsed.data ? parsed.data : parsed;
+          if (data && data.s && !currentSymbols.has(data.s)) return;
+          data._market = "spot"; // 마켓 타입 추가
+          tradeQueue.push(data);
+
+          if (tradeQueueHead > 5000) {
+            tradeQueue = tradeQueue.slice(tradeQueueHead);
+            tradeQueueHead = 0;
+          }
+        } catch (e) {
+          console.error("parse error", e);
+        }
+      };
+
+      // 선물 웹소켓 (강제청산 스트림 포함)
+      const futuresUrl = buildWsUrl("futures", [symbol], true);
+      sockets.push(createSocket(futuresUrl, onFuturesMessage));
+
+      // 현물 웹소켓
+      const spotUrl = buildWsUrl("spot", [symbol]);
+      sockets.push(createSocket(spotUrl, onSpotMessage));
+    }
+
+    // ===== Trade → 단일거래 그룹핑 로직 =====
+    function handleTradeMessage(trade) {
+      // 강제청산 이벤트 처리
+      if (trade._isForceOrder && trade._forceOrderData) {
+        handleForceOrderMessage(trade._forceOrderData);
+        return;
+      }
+      
+      // Binance Futures @trade 포맷 기준
+      // trade.s: symbol
+      // trade.p: price (string)
+      // trade.q: qty (string)
+      // trade.T: trade time (ms)
+      // trade.m: true = buyer is maker → taker side = sell
+      // trade._market: "futures" | "spot" (우클릭 동시 연결 시에만)
+      const symbol = trade.s;
+      const price = parseFloat(trade.p);
+      const qty = parseFloat(trade.q);
+      const ts = trade.T || trade.E || Date.now();
+      lastProcessedTradeTs = ts;
+      const isBuyerMaker = trade.m; // true면 taker는 seller
+      const side = isBuyerMaker ? "SELL" : "BUY";
+      const isRPITrade = trade.isRPITrade || false;
+      const market = trade._market || currentMarket; // 선물/현물 구분
+
+      if (!isFinite(price) || !isFinite(qty)) return;
+      const notional = price * qty;
+
+      // 현재 선택된 심볼만 처리 (멀티 지원)
+      if (!currentSymbols.has(symbol)) return;
+
+      // 선물/현물 최신 가격 업데이트 (bps 계산용)
+      if (market === "futures") {
+        latestPrices.futures = price;
+      } else if (market === "spot") {
+        latestPrices.spot = price;
+      }
+
+      // 심볼+마켓별 그룹 상태 (선물/현물 분리)
+      const groupKey = `${symbol}_${market}`;
+      let group = currentGroups.get(groupKey) || null;
+
+      // 새 그룹 시작 조건
+      if (!group) {
+        group = {
+          symbol,
+          market,
+          side,
+          startTime: ts,
+          endTime: ts,
+          startPrice: price,
+          lastPrice: price,
+          lastTime: ts,
+          totalQuote: notional,
+          totalQty: qty,
+          count: 1,
+          isRPITrade: isRPITrade,
+          priceQtyMap: new Map([[price, qty]])
+        };
+        currentGroups.set(groupKey, group);
+        return;
+      }
+
+      // 기존 그룹에 이어붙일 수 있는지 판단
+      const sameSide = group.side === side;
+      const dt = ts - group.lastTime;
+      const withinTime = dt >= 0 && dt <= GROUP_TIME_THRESHOLD_MS;
+
+      // 가격 단조 조건:
+      // BUY 그룹이면 가격이 하락하지 않음 (price >= lastPrice)
+      // SELL 그룹이면 가격이 상승하지 않음 (price <= lastPrice)
+      let monotonic = true;
+      if (group.side === "BUY" && price < group.lastPrice) {
+        monotonic = false;
+      } else if (group.side === "SELL" && price > group.lastPrice) {
+        monotonic = false;
+      }
+
+      if (sameSide && withinTime && monotonic) {
+        // 기존 그룹에 포함
+        group.lastPrice = price;
+        group.lastTime = ts;
+        group.endTime = ts;
+        group.totalQuote += notional;
+        group.totalQty += qty;
+        group.count += 1;
+        // 가격별 수량 추적
+        group.priceQtyMap.set(price, (group.priceQtyMap.get(price) || 0) + qty);
+        // 하나라도 RPI 거래가 있으면 true
+        if (isRPITrade) group.isRPITrade = true;
+      } else {
+        // 기존 그룹 종료 → 단일거래 이벤트로 확정
+        finalizeGroup(group);
+        // 새로운 그룹 시작
+        group = {
+          symbol,
+          market,
+          side,
+          startTime: ts,
+          endTime: ts,
+          startPrice: price,
+          lastPrice: price,
+          lastTime: ts,
+          totalQuote: notional,
+          totalQty: qty,
+          count: 1,
+          isRPITrade: isRPITrade,
+          priceQtyMap: new Map([[price, qty]])
+        };
+        currentGroups.set(groupKey, group);
+      }
+    }
+
+    function finalizeGroup(group) {
+      if (!group) return;
+      const notional = group.totalQuote; // 단순 합산 노셔널
+      const avgPrice =
+        group.totalQty > 0
+          ? group.totalQuote / group.totalQty
+          : null;
+      // 로그 스케일 Y좌표 캐시 (렌더/호버/선택에서 반복 로그계산 제거)
+      const logMin = Math.log10(MIN_NOTIONAL);
+      const logMax = Math.log10(MAX_NOTIONAL);
+      const ln = Math.log10(Math.max(notional, MIN_NOTIONAL));
+      const yRatioRaw = (ln - logMin) / (logMax - logMin || 1);
+      const yRatio = Math.min(Math.max(yRatioRaw, 0), 1);
+      // 지정가 체결 감지: 100만 달러 이상 & 단일 가격에서 51% 이상 체결
+      let isLimitFill = false;
+      let limitFillPct = 0;
+      if (notional >= 500_000 && group.priceQtyMap && group.priceQtyMap.size > 0 && group.totalQty > 0) {
+        for (const [, pQty] of group.priceQtyMap) {
+          const pct = pQty / group.totalQty;
+          if (pct >= 0.51 && pct > limitFillPct) {
+            isLimitFill = true;
+            limitFillPct = pct;
+          }
+        }
+      }
+
+      const event = {
+        symbol: group.symbol,
+        market: group.market || currentMarket, // 선물/현물 구분
+        side: group.side,
+        notional,
+        startTime: group.startTime,
+        endTime: group.endTime,
+        midTime: (group.startTime + group.endTime) / 2,
+        count: group.count,
+        qty: group.totalQty,
+        avgPrice,
+        yRatio,
+        isRPITrade: group.isRPITrade || false,
+        isLimitFill,
+        limitFillPct
+      };
+
+      events.push(event);
+    }
+
+    // ===== 강제청산 이벤트 처리 =====
+    function handleForceOrderMessage(order) {
+      // Binance forceOrder 구조:
+      // s: symbol, S: side (SELL/BUY), o: order type, f: time in force
+      // q: original quantity, p: price, ap: average price
+      // X: order status, l: last filled quantity, z: cumulative filled quantity
+      // T: trade time
+      const symbol = order.s;
+      const price = parseFloat(order.ap) || parseFloat(order.p); // 평균 가격 우선
+      const qty = parseFloat(order.q);
+      const ts = order.T || Date.now();
+      lastProcessedTradeTs = ts;
+      const side = order.S; // "SELL" = 롱 청산, "BUY" = 숏 청산
+      const market = "futures"; // 강제청산은 선물에서만 발생
+
+      if (!isFinite(price) || !isFinite(qty)) return;
+      const notional = price * qty;
+
+      // 현재 선택된 심볼만 처리
+      if (!currentSymbols.has(symbol)) return;
+
+      // 선물 최신 가격 업데이트
+      latestPrices.futures = price;
+
+      // 로그 스케일 Y좌표 캐시
+      const logMin = Math.log10(MIN_NOTIONAL);
+      const logMax = Math.log10(MAX_NOTIONAL);
+      const ln = Math.log10(Math.max(notional, MIN_NOTIONAL));
+      const yRatioRaw = (ln - logMin) / (logMax - logMin || 1);
+      const yRatio = Math.min(Math.max(yRatioRaw, 0), 1);
+
+      // 강제청산 이벤트 생성 (isForceOrder 플래그로 구분)
+      const event = {
+        symbol,
+        market,
+        side,
+        notional,
+        startTime: ts,
+        endTime: ts,
+        midTime: ts,
+        count: 1,
+        qty,
+        avgPrice: price,
+        yRatio,
+        isRPITrade: false,
+        isForceOrder: true // 강제청산 플래그
+      };
+
+      events.push(event);
+    }
+
+    // ===== Greedy Path 연결 알고리즘 =====
+    // 화면에 보이는 전체 events를 대상으로 같은 symbol, 같은 side, 유사한 Y좌표의 점들을 연결
+    function computeGreedyPaths() {
+      const now = Date.now();
+      const windowStart = now - WINDOW_MS;  // 화면에 보이는 전체 윈도우 (2분)
+      const windowEnd = now;
+
+      // 현재 표시 중인 심볼들의 최소 노셔널 하한 계산 (화면과 동일한 로직)
+      let dynamicMinNotional = MIN_NOTIONAL;
+      if (currentSymbols && currentSymbols.size > 0) {
+        const allMajor = [...currentSymbols].every(s => s === "BTCUSDT" || s === "ETHUSDT");
+        dynamicMinNotional = allMajor ? MIN_NOTIONAL_MAJOR : MIN_NOTIONAL;
+      }
+
+      // Y좌표 비율 계산 함수 (화면과 동일한 로직)
+      const symbolsSnapshot = currentSymbols ? [...currentSymbols] : [];
+      const ratioOf = makeNotionalYRatioMapper(dynamicMinNotional, symbolsSnapshot);
+      const calcScreenYRatio = (notional) => {
+        return ratioOf(notional);
+      };
+
+      // 윈도우 내의 이벤트 추출 (필터링 조건 포함, 화면 Y좌표 비율 계산)
+      const windowEvents = [];
+      for (let i = eventsStartIdx; i < events.length; i++) {
+        const ev = events[i];
+        if (ev.midTime < windowStart || ev.midTime > windowEnd) continue;
+        if (isBelowThreshold(ev.symbol, ev.notional)) continue;
+        if (!ev.avgPrice || !Number.isFinite(ev.avgPrice)) continue;
+        // 화면 기준 Y좌표 비율 계산
+        const screenYRatio = calcScreenYRatio(ev.notional);
+        windowEvents.push({ ...ev, originalIndex: i, screenYRatio });
+      }
+
+      if (windowEvents.length < 2) return [];
+
+      // 점이 너무 많으면 계산 건너뜀 (성능 보호)
+      if (windowEvents.length > PATH_MAX_EVENTS) {
+        console.log(`[Path] 점 개수 ${windowEvents.length}개 > ${PATH_MAX_EVENTS}개 초과, 계산 건너뜀`);
+        return [];
+      }
+
+      // midTime 기준 오름차순 정렬
+      windowEvents.sort((a, b) => a.midTime - b.midTime);
+
+      // 사용됨 표시 배열
+      const used = new Array(windowEvents.length).fill(false);
+      const paths = [];
+
+      // 각 미사용 점을 시작으로 path 생성
+      for (let startIdx = 0; startIdx < windowEvents.length; startIdx++) {
+        if (used[startIdx]) continue;
+
+        const path = [];
+        let currentIdx = startIdx;
+        
+        while (currentIdx !== -1) {
+          const current = windowEvents[currentIdx];
+          path.push(current);
+          used[currentIdx] = true;
+
+          // 다음 점 후보 탐색
+          let bestNextIdx = -1;
+          let bestScore = Infinity;
+
+          for (let nextIdx = currentIdx + 1; nextIdx < windowEvents.length; nextIdx++) {
+            if (used[nextIdx]) continue;
+
+            const next = windowEvents[nextIdx];
+
+            // 연결 조건 검사
+            // 1. 시간 순서 (이미 정렬되어 있으므로 자동 만족)
+            // 2. 시간 제한
+            const timeDiff = next.midTime - current.midTime;
+            if (timeDiff <= 0 || timeDiff > PATH_MAX_TIME_GAP_MS) continue;
+
+            // 3. Y좌표 제한 (화면 기준 screenYRatio로 비교)
+            const yRatioDiff = Math.abs(next.screenYRatio - current.screenYRatio);
+            if (yRatioDiff > PATH_MAX_Y_RATIO_DIFF) continue;
+
+            // 4. 심볼 동일
+            if (next.symbol !== current.symbol) continue;
+
+            // 5. side 동일
+            if (next.side !== current.side) continue;
+
+            // 스코어 계산 (Y좌표 차이 + 시간 차이)
+            const timeDiffRatio = timeDiff / PATH_MAX_TIME_GAP_MS;
+            const yDiffRatio = yRatioDiff / PATH_MAX_Y_RATIO_DIFF;
+            const score = PATH_ALPHA * yDiffRatio + PATH_BETA * timeDiffRatio;
+
+            if (score < bestScore) {
+              bestScore = score;
+              bestNextIdx = nextIdx;
+            }
+          }
+
+          currentIdx = bestNextIdx;
+        }
+
+        // path 길이가 최소 기준 이상인 경우만 저장
+        if (path.length >= PATH_MIN_LENGTH) {
+          paths.push({
+            symbol: path[0].symbol,
+            side: path[0].side,
+            points: path,
+            length: path.length
+          });
+        }
+      }
+
+      return paths;
+    }
+
+    // 10초마다 paths 업데이트
+    function updatePathsIfNeeded() {
+      const now = Date.now();
+      if (now - lastPathUpdate >= PATH_UPDATE_INTERVAL_MS) {
+        cachedPaths = computeGreedyPaths();
+        lastPathUpdate = now;
+      }
+    }
+
+    // 혹시 너무 오랫동안 이어지는 그룹이 있으면 강제로 끊기 (시각화를 위해)
+    setInterval(() => {
+      const now = Date.now();
+      if (!currentGroups.size) return;
+      for (const [sym, group] of currentGroups.entries()) {
+        if (!group) continue;
+        if (now - group.lastTime > GROUP_TIME_THRESHOLD_MS * 5) {
+          finalizeGroup(group);
+          currentGroups.delete(sym);
+        }
+      }
+    }, 50);
+
+      // ===== 애니메이션 루프 (모니터 주사율에 맞춰 업데이트) =====
+      let animationId = null;
+      let lastRenderAt = 0;
+      function startAnimationLoop() {
+        if (animationId !== null) return;
+        const loop = () => {
+          // 트레이드 큐를 프레임 단위로 시간 할당하여 처리 (폭주 시 UI 프리즈 방지)
+          const start = performance.now();
+          const queued = tradeQueue.length - tradeQueueHead;
+          // 정확도 우선: 밀릴수록 더 많이 처리(렌더는 더 낮은 fps로 제한)
+          const BUDGET_MS =
+            queued > 30000 ? 14 :
+            queued > 10000 ? 10 :
+            queued > 3000  ? 7  :
+                             4; // 한 프레임에서 트레이드 처리에 쓸 최대 시간
+          while (tradeQueueHead < tradeQueue.length && (performance.now() - start) < BUDGET_MS) {
+            const t = tradeQueue[tradeQueueHead++];
+            if (t) handleTradeMessage(t);
+          }
+          // head가 많이 진행되면 한 번에 정리 (렌더 루프에서도 정리해 O(n) 누적 방지)
+          if (tradeQueueHead > 5000) {
+            tradeQueue = tradeQueue.slice(tradeQueueHead);
+            tradeQueueHead = 0;
+          }
+
+          // 렌더는 너무 자주 하지 말고 30fps로 제한 (데이터 폭주 시에도 안정)
+          const now = performance.now();
+          const renderFps =
+            queued > 30000 ? 8  :
+            queued > 10000 ? 12 :
+            queued > 3000  ? 20 :
+                             30;
+          const FRAME_MS = 1000 / renderFps;
+          if (now - lastRenderAt >= FRAME_MS) {
+            draw();
+            drawPip();
+            lastRenderAt = now;
+          }
+          animationId = requestAnimationFrame(loop);
+        };
+        animationId = requestAnimationFrame(loop);
+      }
+
+      // ===== 마우스 인터랙션 (호버 / 드래그 선택) =====
+      function handleMouseMove(e) {
+        if (!events.length || !lastDrawState) {
+          hoverEvent = null;
+          return;
+        }
+
+        const rect = canvas.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+
+        // 드래그 중이면 현재 포인트 업데이트
+        if (isDragging && dragStart) {
+          dragCurrent = { x, y };
+        }
+
+        const { tMin, timeSpan, width, height, dynamicMinNotional, symbolsSnapshot } = lastDrawState;
+        const ratioOf = makeNotionalYRatioMapper(dynamicMinNotional || MIN_NOTIONAL, symbolsSnapshot || []);
+
+        let nearest = null;
+        let nearestDist2 = Infinity;
+        const maxDist = 16; // px
+        const maxDist2 = maxDist * maxDist;
+
+        for (let i = eventsStartIdx; i < events.length; i++) {
+          const ev = events[i];
+          if (isBelowThreshold(ev.symbol, ev.notional)) continue;
+          const xRatio = (ev.midTime - tMin) / timeSpan;
+          const px = xRatio * width;
+          
+          const py = height - ratioOf(ev.notional) * height;
+
+          const dx = x - px;
+          const dy = y - py;
+          const d2 = dx * dx + dy * dy;
+          if (d2 < maxDist2 && d2 < nearestDist2) {
+            nearestDist2 = d2;
+            // 좌표는 매 프레임 다시 계산하도록, 여기서는 어떤 이벤트를 선택했는지만 저장
+            nearest = { ev };
+          }
+        }
+
+        hoverEvent = nearest;
+      }
+
+      function handleMouseLeave() {
+        hoverEvent = null;
+        // 캔버스 밖으로 나가면 드래그를 "취소"하지 말고,
+        // 나가기 직전 마지막 직사각형 영역으로 선택을 확정하고 모달 표시
+        if (isDragging && dragStart && dragCurrent) {
+          finalizeDragSelection(dragCurrent.x, dragCurrent.y);
+        }
+      }
+
+      function handleMouseDown(e) {
+        if (!lastDrawState) return;
+        const rect = canvas.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+        isDragging = true;
+        dragStart = { x, y };
+        dragCurrent = { x, y };
+      }
+
+      function finalizeDragSelection(endX, endY) {
+        if (!isDragging) return;
+        isDragging = false;
+
+        if (!dragStart || !lastDrawState) {
+          dragStart = dragCurrent = null;
+          return;
+        }
+
+        // endX/endY는 캔버스 좌표 기준으로 clamp된 값이 들어온다고 가정
+        dragCurrent = { x: endX, y: endY };
+
+        const x1 = Math.min(dragStart.x, dragCurrent.x);
+        const x2 = Math.max(dragStart.x, dragCurrent.x);
+        const y1 = Math.min(dragStart.y, dragCurrent.y);
+        const y2 = Math.max(dragStart.y, dragCurrent.y);
+
+        const minWidth = 4;
+        const minHeight = 4;
+        if (x2 - x1 < minWidth || y2 - y1 < minHeight) {
+          // 너무 작은 드래그는 선택 취소
+          dragStart = dragCurrent = null;
+          return;
+        }
+
+        handleSelectionRectangle(x1, y1, x2, y2);
+        dragStart = dragCurrent = null;
+      }
+
+      function handleMouseUp(e) {
+        if (!isDragging) return;
+        const rect = canvas.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+
+        // 캔버스 밖에서 mouseup 이 발생해도, 좌표를 캔버스 영역으로 clamp
+        const clampedX = Math.min(Math.max(x, 0), rect.width);
+        const clampedY = Math.min(Math.max(y, 0), rect.height);
+        finalizeDragSelection(clampedX, clampedY);
+      }
+
+      canvas.addEventListener("mousemove", handleMouseMove);
+      canvas.addEventListener("mouseleave", handleMouseLeave);
+      canvas.addEventListener("mousedown", handleMouseDown);
+      // mouseup 은 전역(window) 에서도 받아서, 캔버스 밖에서 마우스를 떼도 드래그가 종료되도록 처리
+      canvas.addEventListener("mouseup", handleMouseUp);
+      window.addEventListener("mouseup", handleMouseUp);
+
+      // ===== 드래그 선택 처리 & 모달 표시 =====
+      function handleSelectionRectangle(x1, y1, x2, y2) {
+        if (!lastDrawState || !events.length) return;
+        const { tMin, timeSpan, width, height, dynamicMinNotional, symbolsSnapshot } = lastDrawState;
+        const ratioOf = makeNotionalYRatioMapper(dynamicMinNotional || MIN_NOTIONAL, symbolsSnapshot || []);
+
+        const selected = [];
+        for (let i = eventsStartIdx; i < events.length; i++) {
+          const ev = events[i];
+          if (isBelowThreshold(ev.symbol, ev.notional)) continue;
+          const xRatio = (ev.midTime - tMin) / timeSpan;
+          const px = xRatio * width;
+          
+          const py = height - ratioOf(ev.notional) * height;
+
+          if (px >= x1 && px <= x2 && py >= y1 && py <= y2) {
+            selected.push(ev);
+          }
+        }
+
+        // 선택 영역에 점이 없으면 모달을 띄우지 않음 (기존 모달이 열려있으면 닫기)
+        if (!selected.length) {
+          closeSelectionModal();
+          return;
+        }
+
+        showSelectionModal(selected);
+      }
+
+      function showSelectionModal(selectedEvents) {
+        // 집계: 심볼별로 나눈 뒤, (심볼 + 방향 + 수량버킷) 별로 점 개수/노셔널 합산
+        const bucketsBySymbol = new Map(); // symbol -> Map(key -> bucket)
+        const symbolAgg = new Map();       // symbol -> { points, totalNotional, buyQty, buyNotional, sellQty, sellNotional }
+        let totalPoints = 0;
+        let totalNotional = 0;
+        let totalRPIPoints = 0;
+
+        for (const ev of selectedEvents) {
+          if (!ev || isBelowThreshold(ev.symbol, ev.notional) || !Number.isFinite(ev.notional)) continue;
+          const symbol = ev.symbol || "UNK";
+          const side = ev.side || "UNK";
+          const qty = ev.qty || 0;
+          if (!Number.isFinite(qty) || qty <= 0) continue;
+
+          const qtyKey = qty.toFixed(3);
+          const isRPI = ev.isRPITrade ? 'RPI' : '';
+          const bucketKey = `${side}|${qtyKey}|${isRPI}`;
+
+          let symBuckets = bucketsBySymbol.get(symbol);
+          if (!symBuckets) {
+            symBuckets = new Map();
+            bucketsBySymbol.set(symbol, symBuckets);
+          }
+
+          let bucket = symBuckets.get(bucketKey);
+          if (!bucket) {
+            bucket = { symbol, side, qtyKey, pointCount: 0, totalNotional: 0, isRPITrade: ev.isRPITrade };
+            symBuckets.set(bucketKey, bucket);
+          }
+
+          const notional = ev.notional || 0;
+          bucket.pointCount += 1;
+          bucket.totalNotional += notional;
+
+          totalPoints += 1;
+          totalNotional += notional;
+          if (ev.isRPITrade) totalRPIPoints += 1;
+
+          let agg = symbolAgg.get(symbol);
+          if (!agg) {
+            agg = { 
+              points: 0, totalNotional: 0, 
+              buyQty: 0, buyNotional: 0, 
+              sellQty: 0, sellNotional: 0, 
+              rpiPoints: 0, 
+              rpiBuyPoints: 0, rpiSellPoints: 0 
+            };
+            symbolAgg.set(symbol, agg);
+          }
+          agg.points += 1;
+          agg.totalNotional += notional;
+          if (ev.isRPITrade) {
+            agg.rpiPoints += 1;
+            if (side === "BUY") {
+              agg.rpiBuyPoints += 1;
+            } else {
+              agg.rpiSellPoints += 1;
+            }
+          }
+          if (side === "BUY") {
+            agg.buyQty += qty;
+            agg.buyNotional += notional;
+          } else if (side === "SELL") {
+            agg.sellQty += qty;
+            agg.sellNotional += notional;
+          }
+        }
+
+        // 전체 rows 생성 (심볼 섹션 구분을 위해 symbol 순서/정렬도 따로 유지)
+        const symbols = Array.from(bucketsBySymbol.keys()).sort();
+        if (!symbols.length || totalPoints === 0) {
+          closeSelectionModal();
+          return;
+        }
+
+        // 상단 합계 영역: 심볼별 / 전체 매수·매도 수량/노셔널을 표로 표시
+        let totalBuyQty = 0, totalBuyNotional = 0;
+        let totalSellQty = 0, totalSellNotional = 0;
+        for (const sym of symbols) {
+          const a = symbolAgg.get(sym);
+          if (!a) continue;
+          totalBuyQty += a.buyQty;
+          totalBuyNotional += a.buyNotional;
+          totalSellQty += a.sellQty;
+          totalSellNotional += a.sellNotional;
+        }
+
+        let summaryHtml = `
+          <table class="modal-table" style="margin-bottom:6px;">
+            <thead>
+              <tr>
+                <th>구분</th>
+                <th>매수 수량</th>
+                <th>매수 노셔널</th>
+                <th>매도 수량</th>
+                <th>매도 노셔널</th>
+              </tr>
+            </thead>
+            <tbody>`;
+
+        for (const sym of symbols) {
+          const a = symbolAgg.get(sym);
+          if (!a) continue;
+          summaryHtml += `
+              <tr>
+                <td>${sym}</td>
+                <td><span class="side-buy">${a.buyQty.toFixed(3)}</span></td>
+                <td><span class="side-buy">${formatComma(a.buyNotional)}</span></td>
+                <td><span class="side-sell">${a.sellQty.toFixed(3)}</span></td>
+                <td><span class="side-sell">${formatComma(a.sellNotional)}</span></td>
+              </tr>`;
+        }
+
+        summaryHtml += `
+            </tbody>
+          </table>`;
+
+        selectionSummary.innerHTML = summaryHtml;
+
+        // 테이블 바디 렌더링: 심볼별 섹션 + 그 안에서 (점 개수↓, 노셔널↓) 정렬
+        selectionTableBody.innerHTML = "";
+        for (const sym of symbols) {
+          const a = symbolAgg.get(sym);
+          const symBuckets = bucketsBySymbol.get(sym);
+          if (!symBuckets) continue;
+
+          // 섹션 헤더 row
+          const hdr = document.createElement("tr");
+          hdr.className = "section-row";
+          const td = document.createElement("td");
+          td.colSpan = 6;
+          td.textContent = `${sym} (점 ${(a?.points ?? 0).toLocaleString()}, 노셔널 ${formatComma(a?.totalNotional ?? 0)} USDT)`;
+          hdr.appendChild(td);
+          selectionTableBody.appendChild(hdr);
+
+          const rows = Array.from(symBuckets.values()).sort((a, b) => {
+            if (a.pointCount !== b.pointCount) return b.pointCount - a.pointCount;
+            if (a.totalNotional !== b.totalNotional) return b.totalNotional - a.totalNotional;
+            return 0;
+          });
+
+          for (const row of rows) {
+            const tr = document.createElement("tr");
+            
+            // RPI 거래는 배경색 강조 (매수/매도 구분)
+            if (row.isRPITrade) {
+              if (row.side === "BUY") {
+                tr.style.background = "rgba(0, 255, 200, 0.08)"; // 청록색 배경
+              } else {
+                tr.style.background = "rgba(255, 140, 0, 0.08)"; // 주황색 배경
+              }
+            }
+
+            // 1) 방향
+            const tdSide = document.createElement("td");
+            if (row.isRPITrade) {
+              tdSide.innerHTML = row.side + ' <span style="color: ' + 
+                (row.side === "BUY" ? '#00ffc8' : '#ff8c00') + 
+                ';">🌟RPI</span>';
+            } else {
+              tdSide.textContent = row.side;
+            }
+            tdSide.className = row.side === "BUY" ? "side-buy" : "side-sell";
+            tr.appendChild(tdSide);
+
+            // 2) 수량 (개별 거래 단위)
+            const tdQty = document.createElement("td");
+            tdQty.textContent = parseFloat(row.qtyKey).toFixed(3);
+            tr.appendChild(tdQty);
+
+            // 3) 점 개수
+            const tdPoints = document.createElement("td");
+            tdPoints.textContent = row.pointCount.toLocaleString();
+            tr.appendChild(tdPoints);
+
+            // 4) 합계 수량 (수량 × 점 개수)
+            const totalQty = parseFloat(row.qtyKey) * row.pointCount;
+            const tdTotalQty = document.createElement("td");
+            tdTotalQty.textContent = totalQty.toFixed(3);
+            tr.appendChild(tdTotalQty);
+
+            // 5) 총 노셔널
+            const tdNotional = document.createElement("td");
+            tdNotional.textContent = formatComma(row.totalNotional);
+            tr.appendChild(tdNotional);
+
+            // 6) 평균 노셔널/점
+            const avg = row.pointCount ? (row.totalNotional / row.pointCount) : 0;
+            const tdAvg = document.createElement("td");
+            tdAvg.textContent = formatComma(avg);
+            tr.appendChild(tdAvg);
+
+            selectionTableBody.appendChild(tr);
+          }
+        }
+
+        selectionModal.classList.remove("hidden");
+      }
+
+      function closeSelectionModal() {
+        selectionModal.classList.add("hidden");
+      }
+
+      modalCloseBtn.addEventListener("click", () => {
+        closeSelectionModal();
+      });
+
+      selectionModal.addEventListener("click", (e) => {
+        if (e.target.classList.contains("modal-backdrop")) {
+          closeSelectionModal();
+        }
+      });
+
+      window.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") {
+          closeSelectionModal();
+        }
+      });
+
+      // ===== Document Picture-in-Picture (PiP) =====
+      async function togglePip() {
+        // 이미 열려 있으면 닫기
+        if (pipWindow && !pipWindow.closed) {
+          pipWindow.close();
+          return;
+        }
+
+        if (!("documentPictureInPicture" in window)) {
+          alert("이 브라우저는 Document Picture-in-Picture를 지원하지 않습니다.");
+          return;
+        }
+
+        try {
+          pipWindow = await window.documentPictureInPicture.requestWindow({
+            width: 480,
+            height: 320
+          });
+
+          // PiP 윈도우 기본 스타일
+          pipWindow.document.title = "Trade Visual (PiP)";
+          pipWindow.document.body.style.margin = "0";
+          pipWindow.document.body.style.background = "#050505";
+
+          // 캔버스 생성
+          pipCanvas = pipWindow.document.createElement("canvas");
+          pipCanvas.style.width = "100%";
+          pipCanvas.style.height = "100%";
+          pipCanvas.style.display = "block";
+          pipWindow.document.body.appendChild(pipCanvas);
+          pipCtx = pipCanvas.getContext("2d");
+
+          function resizePipCanvas() {
+            if (!pipWindow || pipWindow.closed || !pipCanvas || !pipCtx) return;
+            const dpr = pipWindow.devicePixelRatio || window.devicePixelRatio || 1;
+            const width = pipWindow.innerWidth;
+            const height = pipWindow.innerHeight;
+            pipCanvas.width = width * dpr;
+            pipCanvas.height = height * dpr;
+            pipCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+          }
+
+          pipWindow.addEventListener("resize", resizePipCanvas);
+          pipWindow.addEventListener("pagehide", () => {
+            pipWindow = null;
+            pipCanvas = null;
+            pipCtx = null;
+          });
+
+          resizePipCanvas();
+        } catch (err) {
+          console.error("Document PiP error", err);
+        }
+      }
+
+      pipBtn.addEventListener("click", () => {
+        togglePip();
+      });
+
+    // ===== 그리기 공통 로직 =====
+    function renderTo(targetCtx, w, h, options = {}) {
+      const {
+        withHover = false,
+        updateState = false,
+        pointScale = 1
+      } = options;
+
+      // 현재 표시 중인 심볼들의 최소 노셔널 하한 계산
+      let dynamicMinNotional = MIN_NOTIONAL;
+      if (currentSymbols && currentSymbols.size > 0) {
+        // 모든 심볼이 Major(BTC/ETH)면 50, 하나라도 아니면 1
+        const allMajor = [...currentSymbols].every(s => s === "BTCUSDT" || s === "ETHUSDT");
+        dynamicMinNotional = allMajor ? MIN_NOTIONAL_MAJOR : MIN_NOTIONAL;
+      }
+
+      // 시간축은 항상 실시간(Date.now) 기준으로 전진
+      const now = Date.now();
+      const cutoff = now - WINDOW_MS;
+      const priceRangeCutoff = now - 10 * 60 * 1000; // 최근 10분 기준 가격 범위
+      const pruningCutoff = now - 15 * 60 * 1000;    // 15분 지난 데이터는 물리적으로 제거
+
+      // 윈도우 밖(15분 이상 된) 이벤트 제거: 메모리 관리 및 성능 유지
+      if (updateState) {
+        while (eventsStartIdx < events.length && events[eventsStartIdx].midTime < pruningCutoff) {
+          eventsStartIdx++;
+        }
+        // 인덱스가 너무 커지면 한 번에 잘라서 메모리 정리
+        if (eventsStartIdx > 2000) {
+          events = events.slice(eventsStartIdx);
+          eventsStartIdx = 0;
+        }
+      }
+
+      targetCtx.clearRect(0, 0, w, h);
+
+      // 배경 그리드 (시간축, 노셔널축 - 로그 스케일)
+      targetCtx.save();
+      targetCtx.strokeStyle = "rgba(255,255,255,0.05)";
+      targetCtx.lineWidth = 1;
+
+      // 수평 노셔널 라인 (dynamicMinNotional~MAX_NOTIONAL 구간을 로그 스케일로 5등분)
+      const horizontalLines = 5;
+      const logMin = Math.log10(dynamicMinNotional);
+      const logMax = Math.log10(MAX_NOTIONAL);
+
+      // y 좌표 계산 유틸 (dynamicMinNotional 반영)
+      const symbolsSnapshot = currentSymbols ? [...currentSymbols] : [];
+      const calcY = makeNotionalYMapper(h, dynamicMinNotional, symbolsSnapshot);
+
+      for (let i = 1; i <= horizontalLines; i++) {
+        const ratio = i / horizontalLines;
+        const yValLog = logMin + (logMax - logMin) * ratio;
+        const yVal = Math.pow(10, yValLog);
+        
+        const y = calcY(yVal);
+        targetCtx.beginPath();
+        targetCtx.moveTo(0, y);
+        targetCtx.lineTo(w, y);
+        targetCtx.stroke();
+      }
+
+      // 5 USDT 가이드라인 (dynamicMinNotional이 5보다 작을 때만 표시)
+      if (dynamicMinNotional <= 5) {
+        const ln5 = Math.log10(5);
+        const t5 = (ln5 - logMin) / (logMax - logMin || 1);
+        const y5 = h - Math.min(Math.max(t5, 0), 1) * h;
+        
+        targetCtx.strokeStyle = "rgba(255, 255, 255, 0.2)";
+        targetCtx.setLineDash([4, 4]);
+        targetCtx.beginPath();
+        targetCtx.moveTo(0, y5);
+        targetCtx.lineTo(w, y5);
+        targetCtx.stroke();
+        targetCtx.setLineDash([]); 
+
+        targetCtx.fillStyle = "rgba(255, 255, 255, 0.3)";
+        targetCtx.font = "9px system-ui";
+        targetCtx.fillText("5 USDT", 5, y5 - 3);
+      }
+
+      // 1,000 USDT 가이드라인 (dynamicMinNotional이 1000보다 작을 때만 표시)
+      if (dynamicMinNotional <= 1000) {
+        const ln1000 = Math.log10(1000);
+        const t1000 = (ln1000 - logMin) / (logMax - logMin || 1);
+        const y1000 = h - Math.min(Math.max(t1000, 0), 1) * h;
+
+        targetCtx.strokeStyle = "rgba(255, 255, 255, 0.2)";
+        targetCtx.setLineDash([4, 4]);
+        targetCtx.beginPath();
+        targetCtx.moveTo(0, y1000);
+        targetCtx.lineTo(w, y1000);
+        targetCtx.stroke();
+        targetCtx.setLineDash([]); 
+
+        targetCtx.fillStyle = "rgba(255, 255, 255, 0.3)";
+        targetCtx.font = "9px system-ui";
+        targetCtx.fillText("1,000 USDT", 5, y1000 - 3);
+      }
+
+      targetCtx.restore();
+
+      if (!events.length) return;
+
+      // 시간 범위: 항상 현재 기준 3분 롤링 윈도우
+      const tMin = cutoff;
+      const timeSpan = WINDOW_MS;
+
+      // 이후 마우스용 계산을 위해 상태 저장 (메인 컨텍스트에서만)
+      if (updateState) {
+        lastDrawState = { tMin, timeSpan, width: w, height: h, dynamicMinNotional, symbolsSnapshot };
+      }
+
+      // 수직 시간 그리드: 실제 시간 기준 (30초 간격), 분 경계에 맞춰 함께 이동
+      targetCtx.save();
+      const gridIntervalMs = 30 * 1000;   // 기본 그리드: 30초 간격
+      const strongIntervalMs = 60 * 1000; // 강조선: 1분 간격
+      const endTime = tMin + timeSpan;
+      let tick = Math.ceil(tMin / gridIntervalMs) * gridIntervalMs;
+      while (tick <= endTime) {
+        const xRatio = (tick - tMin) / timeSpan;
+        const x = xRatio * w;
+
+        const isMinuteLine = tick % strongIntervalMs === 0;
+        targetCtx.strokeStyle = isMinuteLine
+          ? "rgba(255,255,255,0.12)" // 1분 경계선은 좀 더 진하게
+          : "rgba(255,255,255,0.04)";
+        targetCtx.lineWidth = isMinuteLine ? 1.2 : 1;
+
+        targetCtx.beginPath();
+        targetCtx.moveTo(x, 0);
+        targetCtx.lineTo(x, h);
+        targetCtx.stroke();
+
+        tick += gridIntervalMs;
+      }
+      targetCtx.restore();
+
+      // ===== 배경 가격 선 그래프 (점 그리기 전) =====
+      // 보이는 이벤트들을 심볼+마켓별로 그룹화하고, 시간순 정렬 후 avgPrice를 이어서 그리기
+      const symbolMarketGroups = new Map(); // key: "symbol_market"
+      for (let i = eventsStartIdx; i < events.length; i++) {
+        const ev = events[i];
+        if (isBelowThreshold(ev.symbol, ev.notional)) continue;
+        if (!ev.avgPrice || !Number.isFinite(ev.avgPrice)) continue;
+        const key = `${ev.symbol}_${ev.market || 'futures'}`;
+        if (!symbolMarketGroups.has(key)) symbolMarketGroups.set(key, []);
+        symbolMarketGroups.get(key).push(ev);
+      }
+
+      // 심볼별(마켓 통합) 가격 범위 계산 (선물+현물이 같은 스케일로 비교되도록)
+      const symbolRanges = new Map();
+      // 먼저 심볼별로 모든 마켓의 가격을 수집
+      const symbolAllPrices = new Map();
+      for (const [key, grp] of symbolMarketGroups.entries()) {
+        const sym = key.split('_')[0];
+        if (!symbolAllPrices.has(sym)) symbolAllPrices.set(sym, []);
+        for (const ev of grp) {
+          if (ev.midTime < priceRangeCutoff) continue;
+          symbolAllPrices.get(sym).push(ev.avgPrice);
+        }
+      }
+      for (const [sym, prices] of symbolAllPrices.entries()) {
+        // 초기 가격 범위가 있으면 포함 (처음 로딩 시 안정화)
+        const initialRange = initialPriceRanges.get(sym);
+        let sMin, sMax;
+        
+        if (prices.length) {
+          sMin = Math.min(...prices);
+          sMax = Math.max(...prices);
+        } else {
+          sMin = Infinity;
+          sMax = -Infinity;
+        }
+        
+        // 초기 가격 범위와 병합 (10분 이내에만 사용)
+        if (initialRange && (Date.now() - initialRange.loadedAt < 10 * 60 * 1000)) {
+          sMin = Math.min(sMin, initialRange.min);
+          sMax = Math.max(sMax, initialRange.max);
+        }
+        
+        if (!Number.isFinite(sMin) || !Number.isFinite(sMax) || sMin >= sMax) continue;
+        symbolRanges.set(sym, { min: sMin, max: sMax, range: sMax - sMin || 1 });
+      }
+
+      // 심볼+마켓별 색상 매핑 (선물: 진한색, 현물: 점선/밝은색)
+      const symbolColorsFutures = {
+        "BTCUSDT": "rgba(247, 147, 26, 0.7)",   // BTC 선물: 오렌지
+        "ETHUSDT": "rgba(98, 126, 234, 0.7)",   // ETH 선물: 파란색
+        "SOLUSDT": "rgba(220, 31, 255, 0.7)",   // SOL 선물: 보라색
+      };
+      const symbolColorsSpot = {
+        "BTCUSDT": "rgba(255, 200, 100, 0.6)",  // BTC 현물: 밝은 금색
+        "ETHUSDT": "rgba(150, 200, 255, 0.6)",  // ETH 현물: 밝은 하늘색
+        "SOLUSDT": "rgba(255, 150, 255, 0.6)",  // SOL 현물: 밝은 분홍
+      };
+      const defaultColorFutures = "rgba(160, 160, 160, 0.5)";
+      const defaultColorSpot = "rgba(200, 200, 200, 0.4)";
+
+      // 각 심볼+마켓별로 선 그래프 그리기
+      for (const [key, grp] of symbolMarketGroups.entries()) {
+        if (grp.length < 2) continue;
+        const [sym, market] = key.split('_');
+        const rangeInfo = symbolRanges.get(sym);
+        if (!rangeInfo) continue;
+
+        const { min: sMin, range: sRange } = rangeInfo;
+
+        // 시간순 정렬
+        grp.sort((a, b) => a.midTime - b.midTime);
+
+        const isFutures = market === 'futures';
+        const color = isFutures 
+          ? (symbolColorsFutures[sym] || defaultColorFutures)
+          : (symbolColorsSpot[sym] || defaultColorSpot);
+
+        targetCtx.save();
+        targetCtx.strokeStyle = color;
+        targetCtx.lineWidth = isFutures ? 2 : 1.5;
+        if (!isFutures) {
+          targetCtx.setLineDash([4, 3]); // 현물은 점선으로 표시
+        }
+        targetCtx.beginPath();
+
+        let firstPoint = true;
+        for (const ev of grp) {
+          const xRatio = (ev.midTime - tMin) / timeSpan;
+          const x = xRatio * w;
+          const yNorm = (ev.avgPrice - sMin) / sRange;
+          const y = h - (yNorm * h * 0.9 + h * 0.05); // 상하 5% 여백
+
+          if (firstPoint) {
+            targetCtx.moveTo(x, y);
+            firstPoint = false;
+          } else {
+            targetCtx.lineTo(x, y);
+          }
+        }
+        targetCtx.stroke();
+        targetCtx.restore();
+      }
+
+      // ===== 현재 가격 가로선 (각 심볼+마켓의 최신 가격) =====
+      const priceLineColorsFutures = {
+        "BTCUSDT": "rgba(247, 147, 26, 0.95)",   // BTC 선물
+        "ETHUSDT": "rgba(98, 126, 234, 0.95)",   // ETH 선물
+        "SOLUSDT": "rgba(220, 31, 255, 0.95)",   // SOL 선물
+      };
+      const priceLineColorsSpot = {
+        "BTCUSDT": "rgba(255, 200, 100, 0.85)",  // BTC 현물
+        "ETHUSDT": "rgba(150, 200, 255, 0.85)",  // ETH 현물
+        "SOLUSDT": "rgba(255, 150, 255, 0.85)",  // SOL 현물
+      };
+      const defaultPriceLineFutures = "rgba(160, 160, 160, 0.9)";
+      const defaultPriceLineSpot = "rgba(200, 200, 200, 0.7)";
+      
+      for (const [key, grp] of symbolMarketGroups.entries()) {
+        if (!grp.length) continue;
+        const [sym, market] = key.split('_');
+        const rangeInfo = symbolRanges.get(sym);
+        if (!rangeInfo) continue;
+
+        const { min: sMin, range: sRange } = rangeInfo;
+
+        // 가장 최근 이벤트(시간순 마지막)의 가격
+        const latestEvent = grp[grp.length - 1];
+        const currentPrice = latestEvent.avgPrice;
+        if (!Number.isFinite(currentPrice)) continue;
+
+        const yNorm = (currentPrice - sMin) / sRange;
+        const y = h - (yNorm * h * 0.9 + h * 0.05);
+
+        const isFutures = market === 'futures';
+        const lineColor = isFutures
+          ? (priceLineColorsFutures[sym] || defaultPriceLineFutures)
+          : (priceLineColorsSpot[sym] || defaultPriceLineSpot);
+
+        targetCtx.save();
+        targetCtx.strokeStyle = lineColor;
+        targetCtx.lineWidth = isFutures ? 2.5 : 2;
+        targetCtx.setLineDash(isFutures ? [8, 4] : [4, 4]);
+        targetCtx.beginPath();
+        targetCtx.moveTo(0, y);
+        targetCtx.lineTo(w, y);
+        targetCtx.stroke();
+        targetCtx.restore();
+      }
+
+      // ===== 오른쪽 상단: 선물/현물 가격차이 bps 표시 (both 모드에서만) =====
+      if (currentMarket === "both" && latestPrices.futures && latestPrices.spot) {
+        const futuresPrice = latestPrices.futures;
+        const spotPrice = latestPrices.spot;
+        // bps = (선물 - 현물) / 현물 * 10000
+        const bps = ((futuresPrice - spotPrice) / spotPrice) * 10000;
+        const bpsStr = bps >= 0 ? `+${bps.toFixed(2)}` : bps.toFixed(2);
+        const bpsColor = bps >= 0 ? "rgba(74, 222, 128, 1)" : "rgba(248, 113, 113, 1)";
+
+        targetCtx.save();
+        targetCtx.font = "bold 14px system-ui";
+        targetCtx.textAlign = "right";
+        targetCtx.textBaseline = "top";
+
+        // 배경 박스
+        const labelText = `선물-현물: ${bpsStr} bps`;
+        const textWidth = targetCtx.measureText(labelText).width;
+        const boxPadding = 8;
+        const boxX = w - textWidth - boxPadding * 2 - 10;
+        const boxY = 10;
+        const boxW = textWidth + boxPadding * 2;
+        const boxH = 24;
+
+        targetCtx.fillStyle = "rgba(0, 0, 0, 0.7)";
+        targetCtx.beginPath();
+        if (targetCtx.roundRect) {
+          targetCtx.roundRect(boxX, boxY, boxW, boxH, 6);
+        } else {
+          targetCtx.rect(boxX, boxY, boxW, boxH);
+        }
+        targetCtx.fill();
+        
+        targetCtx.strokeStyle = bpsColor;
+        targetCtx.lineWidth = 1.5;
+        targetCtx.stroke();
+
+        // 텍스트
+        targetCtx.fillStyle = bpsColor;
+        targetCtx.fillText(labelText, w - 10 - boxPadding, boxY + 5);
+        targetCtx.restore();
+
+        // 선물/현물 가격도 표시
+        targetCtx.save();
+        targetCtx.font = "11px system-ui";
+        targetCtx.textAlign = "right";
+        targetCtx.textBaseline = "top";
+
+        const priceBoxY = boxY + boxH + 6;
+        const futuresPriceStr = `선물: ${futuresPrice.toFixed(2)}`;
+        const spotPriceStr = `현물: ${spotPrice.toFixed(2)}`;
+
+        targetCtx.fillStyle = "rgba(247, 147, 26, 0.9)";
+        targetCtx.fillText(futuresPriceStr, w - 14, priceBoxY);
+        
+        targetCtx.fillStyle = "rgba(255, 200, 100, 0.9)";
+        targetCtx.fillText(spotPriceStr, w - 14, priceBoxY + 14);
+
+        targetCtx.restore();
+      }
+
+      // 왼쪽 가격 숫자 표시 (심볼이 하나일 때만 해당 심볼 가격 표시)
+      const uniqueSymbols = new Set([...symbolMarketGroups.keys()].map(k => k.split('_')[0]));
+      if (uniqueSymbols.size === 1) {
+        const sym = uniqueSymbols.values().next().value;
+        const rangeInfo = symbolRanges.get(sym);
+        if (rangeInfo) {
+          const { min: sMin, range: sRange } = rangeInfo;
+          targetCtx.save();
+          targetCtx.fillStyle = "rgba(238, 238, 238, 0.9)";
+          targetCtx.font = "10px system-ui";
+          targetCtx.textAlign = "left";
+          targetCtx.textBaseline = "middle";
+
+          const priceLabels = 8;
+          for (let i = 0; i <= priceLabels; i++) {
+            const ratio = i / priceLabels;
+            const price = sMin + sRange * ratio;
+            const yNorm = ratio;
+            const y = h - (yNorm * h * 0.9 + h * 0.05);
+
+            let priceStr;
+            if (sRange < 1) {
+              priceStr = price.toFixed(4);
+            } else if (sRange < 10) {
+              priceStr = price.toFixed(3);
+            } else if (sRange < 100) {
+              priceStr = price.toFixed(2);
+            } else {
+              priceStr = price.toFixed(1);
+            }
+
+            targetCtx.fillStyle = "rgba(238, 238, 238, 0.9)";
+            targetCtx.fillText(priceStr, 4, y);
+          }
+          targetCtx.restore();
+        }
+      }
+
+      // ===== 히트맵 격자 (매수/매도 우위 표시) =====
+      // 1초마다 격자 재계산 (10초 단위 칸이 실제 시간 0/10/20...초에 스냅되도록)
+      const currentTime = Date.now();
+      const CELL_MS = 10 * 1000; // 10초
+      if (updateState && (currentTime - lastHeatmapUpdate >= 1000 || !heatmapGrid)) {
+        const GRID_ROWS = 20; // 15분할 (노셔널 방향)
+
+        // 현재 윈도우보다 한 칸(CELL_MS) 이른 구간까지 포함해 버킷 범위 계산
+        const historyStart = tMin - CELL_MS;
+        const historyEnd = tMin + timeSpan;
+        const firstBucket = Math.floor(historyStart / CELL_MS);
+        const lastBucket = Math.floor((historyEnd - 1) / CELL_MS);
+
+        const buckets = new Map(); // key: bucketIndex, value: row array
+
+        // 이벤트를 절대 시간 버킷에 매핑
+        for (let i = eventsStartIdx; i < events.length; i++) {
+          const ev = events[i];
+          if (isBelowThreshold(ev.symbol, ev.notional)) continue;
+          if (ev.midTime < historyStart || ev.midTime >= historyEnd) continue;
+
+          const bucketIndex = Math.floor(ev.midTime / CELL_MS);
+          if (bucketIndex < firstBucket || bucketIndex > lastBucket) continue;
+
+          let rows = buckets.get(bucketIndex);
+          if (!rows) {
+            rows = [];
+            for (let r = 0; r < GRID_ROWS; r++) {
+              rows[r] = { buyQty: 0, sellQty: 0 };
+            }
+            buckets.set(bucketIndex, rows);
+          }
+
+          const row = Math.floor((calcY(ev.notional) / h) * GRID_ROWS);
+          if (row < 0 || row >= GRID_ROWS) continue;
+
+          const qty = ev.qty || 0;
+          if (ev.side === "BUY") {
+            rows[row].buyQty += qty;
+          } else if (ev.side === "SELL") {
+            rows[row].sellQty += qty;
+          }
+        }
+
+        heatmapGrid = { buckets, GRID_ROWS, CELL_MS, firstBucket, lastBucket };
+        lastHeatmapUpdate = currentTime;
+      }
+
+      // 히트맵 그리기 (항상 현재 tMin / WINDOW_MS에 맞춰 칸이 시간축에 스냅되도록)
+      if (heatmapGrid) {
+        const { buckets, GRID_ROWS, CELL_MS } = heatmapGrid;
+        const chartWidth = w;
+        if (chartWidth > 0 && GRID_ROWS > 0) {
+          const windowStart = tMin;
+          const windowEnd = tMin + timeSpan;
+          const baseBucket = Math.floor(windowStart / CELL_MS);
+          const maxBucket = Math.floor((windowEnd - 1) / CELL_MS);
+          const cellHeight = h / GRID_ROWS;
+
+          // 버킷별 전체 CVD를 저장 (상단 바 그리기용)
+          const bucketCVDs = [];
+
+          targetCtx.save();
+          for (let bucketIndex = baseBucket; bucketIndex <= maxBucket; bucketIndex++) {
+            const rows = buckets.get(bucketIndex);
+            
+            const bucketStartTime = bucketIndex * CELL_MS;
+            const bucketEndTime = bucketStartTime + CELL_MS;
+
+            // 현재 윈도우 내에서의 x 구간 (0~1 비율)
+            const startFrac = (bucketStartTime - windowStart) / timeSpan;
+            const endFrac = (bucketEndTime - windowStart) / timeSpan;
+
+            const x = startFrac * chartWidth;
+            const widthPx = (endFrac - startFrac) * chartWidth;
+            if (widthPx <= 0) continue;
+
+            // 버킷 전체 CVD 계산
+            let totalBuyQty = 0;
+            let totalSellQty = 0;
+
+            if (rows) {
+              for (let row = 0; row < GRID_ROWS; row++) {
+                const cell = rows[row];
+                const buyQty = cell.buyQty;
+                const sellQty = cell.sellQty;
+                const total = buyQty + sellQty;
+                
+                totalBuyQty += buyQty;
+                totalSellQty += sellQty;
+
+                if (total === 0) continue;
+
+                const netQty = buyQty - sellQty;
+                const dominance = netQty / total; // -1 (매도) ~ +1 (매수)
+
+                let color;
+                const absAlphaRaw = Math.min(Math.abs(dominance) * 0.3, 0.25);
+                const absAlpha = absAlphaRaw < 0.06 ? 0 : absAlphaRaw; // 너무 옅은 색은 제외
+                if (absAlpha === 0) continue;
+
+                if (dominance > 0) {
+                  color = `rgba(74, 222, 128, ${absAlpha})`;
+                } else {
+                  color = `rgba(248, 113, 113, ${absAlpha})`;
+                }
+
+                const y = row * cellHeight;
+                targetCtx.fillStyle = color;
+                targetCtx.fillRect(x, y, widthPx, cellHeight);
+              }
+            }
+
+            // 버킷 CVD 저장
+            const bucketCVD = totalBuyQty - totalSellQty;
+            bucketCVDs.push({ x, widthPx, cvd: bucketCVD, totalVolume: totalBuyQty + totalSellQty });
+          }
+          targetCtx.restore();
+
+          // ===== 상단 CVD 바 그리기 (네온 컬러 라인) =====
+          if (bucketCVDs.length > 0) {
+            // 최대 CVD 절대값 계산 (색상 강도 정규화용)
+            let maxAbsCVD = 0;
+            for (const b of bucketCVDs) {
+              const absCVD = Math.abs(b.cvd);
+              if (absCVD > maxAbsCVD) maxAbsCVD = absCVD;
+            }
+
+            const CVD_BAR_HEIGHT = 4; // 바 높이 (픽셀)
+
+            targetCtx.save();
+            for (const bucket of bucketCVDs) {
+              const { x, widthPx, cvd, totalVolume } = bucket;
+              
+              // 거래가 없는 구간은 건너뜀
+              if (totalVolume === 0) continue;
+
+              // CVD 강도에 따른 색상 알파값 계산 (최소 0.4 ~ 최대 1.0)
+              const intensity = maxAbsCVD > 0 ? Math.abs(cvd) / maxAbsCVD : 0;
+              const alpha = 0.4 + intensity * 0.6;
+
+              // 히트맵과 동일한 색상: 매수 우위 = 녹색, 매도 우위 = 빨간색
+              let barColor;
+              if (cvd > 0) {
+                // 매수 우위: 녹색 (히트맵과 동일)
+                barColor = `rgba(74, 222, 128, ${alpha})`;
+              } else if (cvd < 0) {
+                // 매도 우위: 빨간색 (히트맵과 동일)
+                barColor = `rgba(248, 113, 113, ${alpha})`;
+              } else {
+                // 중립: 회색
+                barColor = `rgba(150, 150, 150, 0.3)`;
+              }
+
+              // 글로우 효과 (네온 느낌)
+              if (cvd !== 0 && intensity > 0.2) {
+                const glowAlpha = intensity * 0.3;
+                const glowColor = cvd > 0 
+                  ? `rgba(74, 222, 128, ${glowAlpha})`
+                  : `rgba(248, 113, 113, ${glowAlpha})`;
+                targetCtx.fillStyle = glowColor;
+                targetCtx.fillRect(x, 0, widthPx, CVD_BAR_HEIGHT + 2);
+              }
+
+              // 메인 바
+              targetCtx.fillStyle = barColor;
+              targetCtx.fillRect(x, 0, widthPx, CVD_BAR_HEIGHT);
+            }
+            targetCtx.restore();
+          }
+        }
+      }
+
+      // ===== OI (Open Interest) 스텝 차트 (노란색) =====
+      if (oiData.length >= 2) {
+        const oiBySymbol = new Map();
+        for (const d of oiData) {
+          if (!currentSymbols.has(d.symbol)) continue;
+          if (!oiBySymbol.has(d.symbol)) oiBySymbol.set(d.symbol, []);
+          oiBySymbol.get(d.symbol).push(d);
+        }
+
+        for (const [sym, points] of oiBySymbol.entries()) {
+          if (points.length < 2) continue;
+          points.sort((a, b) => a.time - b.time);
+
+          // OI 범위 계산 (최근 10분 기준)
+          let oiMin = Infinity, oiMax = -Infinity;
+          for (const p of points) {
+            if (p.time < priceRangeCutoff) continue;
+            if (p.oi < oiMin) oiMin = p.oi;
+            if (p.oi > oiMax) oiMax = p.oi;
+          }
+          if (!Number.isFinite(oiMin) || !Number.isFinite(oiMax)) continue;
+
+          // 범위가 너무 좁으면 패딩 추가 (플랫 라인 방지)
+          if (oiMax - oiMin < oiMin * 0.0001) {
+            const pad = oiMin * 0.001 || 1;
+            oiMin -= pad;
+            oiMax += pad;
+          }
+          const oiRange = oiMax - oiMin || 1;
+
+          // 최신 가격 (노셔널 델타 계산용)
+          let refPrice = 0;
+          for (let pi = points.length - 1; pi >= 0; pi--) {
+            if (points[pi].price > 0) { refPrice = points[pi].price; break; }
+          }
+
+          // 스텝 차트 그리기
+          targetCtx.save();
+          targetCtx.strokeStyle = "rgba(255, 215, 0, 0.8)";
+          targetCtx.lineWidth = 1.5;
+          targetCtx.beginPath();
+
+          let first = true;
+          let lastX, lastY;
+          const oiDeltas = []; // 1M+ USD 변화 기록
+
+          for (let pi = 0; pi < points.length; pi++) {
+            const p = points[pi];
+            const xRatio = (p.time - tMin) / timeSpan;
+            const x = xRatio * w;
+            const yNorm = (p.oi - oiMin) / oiRange;
+            const y = h - (yNorm * h * 0.9 + h * 0.05);
+
+            if (first) {
+              targetCtx.moveTo(x, y);
+              first = false;
+            } else {
+              // 스텝 차트: 수평으로 이어진 뒤 수직선으로 새 값 연결
+              targetCtx.lineTo(x, lastY);
+              targetCtx.lineTo(x, y);
+
+              // 1M USD+ 델타 감지 (qty 기준 표시)
+              const prevP = points[pi - 1];
+              const deltaOi = p.oi - prevP.oi;
+              const priceForDelta = p.price || refPrice;
+              if (priceForDelta > 0) {
+                const notionalDelta = deltaOi * priceForDelta;
+                if (Math.abs(notionalDelta) >= OI_DELTA_THRESHOLD_USD) {
+                  oiDeltas.push({ x, y, deltaOi });
+                }
+              }
+            }
+            lastX = x;
+            lastY = y;
+          }
+          targetCtx.stroke();
+          targetCtx.restore();
+
+          // 델타 라벨 그리기 (1M+ USD 변화 지점, qty 표시)
+          for (const delta of oiDeltas) {
+            targetCtx.save();
+            const isPositive = delta.deltaOi > 0;
+            const sign = isPositive ? "+" : "";
+            const label = `${sign}${formatBmk(delta.deltaOi)}`;
+            const labelY = delta.y + (isPositive ? -6 : 6);
+
+            // 흰색 반투명 배경
+            targetCtx.font = "bold 9px system-ui";
+            targetCtx.textAlign = "center";
+            targetCtx.textBaseline = isPositive ? "bottom" : "top";
+            const tm = targetCtx.measureText(label);
+            const pad = 3;
+            const bgX = delta.x - tm.width / 2 - pad;
+            const bgW = tm.width + pad * 2;
+            const bgH = 13;
+            const bgY = isPositive ? labelY - bgH : labelY;
+            targetCtx.fillStyle = "rgba(255, 255, 255, 0.18)";
+            targetCtx.beginPath();
+            if (targetCtx.roundRect) {
+              targetCtx.roundRect(bgX, bgY, bgW, bgH, 3);
+            } else {
+              targetCtx.rect(bgX, bgY, bgW, bgH);
+            }
+            targetCtx.fill();
+
+            // 텍스트
+            targetCtx.fillStyle = isPositive
+              ? "rgba(74, 222, 128, 0.95)"
+              : "rgba(248, 113, 113, 0.95)";
+            targetCtx.fillText(label, delta.x, labelY);
+            targetCtx.restore();
+          }
+
+          // 최신 OI 값 라벨 (라인 끝점에 표시)
+          if (lastX !== undefined && lastY !== undefined) {
+            const latest = points[points.length - 1];
+            targetCtx.save();
+            targetCtx.fillStyle = "rgba(255, 215, 0, 0.9)";
+            targetCtx.font = "bold 10px system-ui";
+            targetCtx.textAlign = "left";
+            targetCtx.textBaseline = "middle";
+            const labelX = Math.min(lastX + 6, w - 80);
+            targetCtx.fillText(`OI ${formatBmk(latest.oi)}`, labelX, lastY);
+            targetCtx.restore();
+          }
+        }
+      }
+
+      // ===== Greedy Path 선 그리기 (점보다 뒤 레이어) =====
+      // paths 업데이트 (메인 렌더링에서만)
+      if (updateState && PATH_ENABLED) {
+        updatePathsIfNeeded();
+      }
+
+      // 심볼별 선 색상 (side에 따라 다르게) - 배경색으로 은은하게
+      const pathColorsBuy = {
+        "BTCUSDT": "rgba(255, 200, 50, 0.4)",    // BTC 매수: 연한 금색
+        "ETHUSDT": "rgba(100, 200, 255, 0.4)",   // ETH 매수: 연한 하늘색
+        "SOLUSDT": "rgba(220, 130, 255, 0.4)",   // SOL 매수: 연한 보라
+      };
+      const pathColorsSell = {
+        "BTCUSDT": "rgba(255, 100, 30, 0.4)",    // BTC 매도: 연한 오렌지
+        "ETHUSDT": "rgba(50, 120, 255, 0.4)",    // ETH 매도: 연한 파랑
+        "SOLUSDT": "rgba(180, 60, 220, 0.4)",    // SOL 매도: 연한 보라
+      };
+      const defaultPathColorBuy = "rgba(50, 255, 150, 0.35)";   // 기타 매수: 연한 녹색
+      const defaultPathColorSell = "rgba(255, 80, 80, 0.35)";   // 기타 매도: 연한 빨강
+
+      // cached paths 렌더링
+      if (cachedPaths && cachedPaths.length > 0) {
+        targetCtx.save();
+        targetCtx.lineCap = "round";
+        targetCtx.lineJoin = "round";
+
+        for (const path of cachedPaths) {
+          if (!path.points || path.points.length < 2) continue;
+
+          // 색상 선택 (symbol + side 기준)
+          let pathColor;
+          if (path.side === "BUY") {
+            pathColor = pathColorsBuy[path.symbol] || defaultPathColorBuy;
+          } else {
+            pathColor = pathColorsSell[path.symbol] || defaultPathColorSell;
+          }
+
+          // 경로 좌표 계산 (calcY를 사용하여 점과 동일한 Y좌표 계산)
+          const pathCoords = [];
+          for (const point of path.points) {
+            const xRatio = (point.midTime - tMin) / timeSpan;
+            const x = xRatio * w;
+            const y = calcY(point.notional);
+            pathCoords.push({ x, y });
+          }
+
+          // 글로우 효과 (더 연하고 부드럽게)
+          targetCtx.strokeStyle = pathColor.replace(/[\d.]+\)$/, '0.05)');
+          targetCtx.lineWidth = 6;
+          targetCtx.beginPath();
+          pathCoords.forEach((p, i) => i === 0 ? targetCtx.moveTo(p.x, p.y) : targetCtx.lineTo(p.x, p.y));
+          targetCtx.stroke();
+
+          // 메인 선 (더 두껍고 선명하게)
+          targetCtx.strokeStyle = pathColor;
+          targetCtx.lineWidth = 2.5;
+          targetCtx.beginPath();
+          pathCoords.forEach((p, i) => i === 0 ? targetCtx.moveTo(p.x, p.y) : targetCtx.lineTo(p.x, p.y));
+          targetCtx.stroke();
+        }
+
+        targetCtx.restore();
+      }
+
+      // 단일거래 점 그리기
+      for (let i = eventsStartIdx; i < events.length; i++) {
+        const ev = events[i];
+        if (isBelowThreshold(ev.symbol, ev.notional)) continue;
+
+        const xRatio = (ev.midTime - tMin) / timeSpan;
+        const x = xRatio * w;
+        const y = calcY(ev.notional);
+        const isSpot = ev.market === "spot";
+        const isForceOrder = ev.isForceOrder || false;
+
+        // 점 크기를 노셔널 또는 trade 개수에 따라 스케일
+        // 노셔널 기반
+        let r = POINT_RADIUS_MIN +
+                (POINT_RADIUS_MAX - POINT_RADIUS_MIN) *
+                (ev.notional / MAX_NOTIONAL);
+        if (r < POINT_RADIUS_MIN) r = POINT_RADIUS_MIN;
+        if (r > POINT_RADIUS_MAX) r = POINT_RADIUS_MAX;
+        r *= pointScale;
+
+        // 색상 결정 (일반 거래와 동일)
+        let fillColor, strokeColor;
+        if (ev.side === "BUY") {
+          // 매수 (숏 청산)
+          if (isSpot) {
+            fillColor = "rgba(0, 200, 180, 0.7)";
+            strokeColor = "rgba(100, 255, 230, 0.8)";
+          } else {
+            fillColor = "rgba(74, 222, 128, 0.7)";
+            strokeColor = "rgba(134, 239, 172, 0.8)";
+          }
+        } else {
+          // 매도 (롱 청산)
+          if (isSpot) {
+            fillColor = "rgba(255, 180, 100, 0.7)";
+            strokeColor = "rgba(255, 200, 150, 0.8)";
+          } else {
+            fillColor = "rgba(248, 113, 113, 0.7)";
+            strokeColor = "rgba(252, 165, 165, 0.8)";
+          }
+        }
+
+        targetCtx.fillStyle = fillColor;
+        targetCtx.strokeStyle = strokeColor;
+
+        // 강제청산은 삼각형으로 표시
+        if (isForceOrder) {
+          const triSize = Math.max(r * 2.5, 4); // 삼각형 크기
+          targetCtx.beginPath();
+          if (ev.side === "SELL") {
+            // 롱 청산: 아래를 향하는 삼각형 (▼)
+            targetCtx.moveTo(x, y + triSize * 0.7);
+            targetCtx.lineTo(x - triSize * 0.6, y - triSize * 0.4);
+            targetCtx.lineTo(x + triSize * 0.6, y - triSize * 0.4);
+          } else {
+            // 숏 청산: 위를 향하는 삼각형 (▲)
+            targetCtx.moveTo(x, y - triSize * 0.7);
+            targetCtx.lineTo(x - triSize * 0.6, y + triSize * 0.4);
+            targetCtx.lineTo(x + triSize * 0.6, y + triSize * 0.4);
+          }
+          targetCtx.closePath();
+          targetCtx.fill();
+          targetCtx.lineWidth = 1;
+          targetCtx.stroke();
+        } else {
+          // 일반 거래는 원형
+          targetCtx.beginPath();
+          targetCtx.arc(x, y, r, 0, Math.PI * 2);
+          targetCtx.closePath();
+          targetCtx.fill();
+          // targetCtx.stroke();
+        }
+
+        // 지정가 체결 마커 (100만$+, 단일가격 51%+ → 반대색 정사각형)
+        if (ev.isLimitFill) {
+          targetCtx.save();
+          const sqColor = ev.side === "BUY"
+            ? "rgba(248, 113, 113, 0.9)"  // 매수 → 반대색(빨강)
+            : "rgba(74, 222, 128, 0.9)";  // 매도 → 반대색(초록)
+          const sqSize = Math.max(r + 3, 4);
+          targetCtx.strokeStyle = sqColor;
+          targetCtx.lineWidth = 1.5;
+          targetCtx.beginPath();
+          targetCtx.rect(x - sqSize, y - sqSize, sqSize * 2, sqSize * 2);
+          targetCtx.stroke();
+          targetCtx.restore();
+        }
+
+        // 현물 거래는 추가 마커 (다이아몬드 모양 테두리)
+        if (isSpot && currentMarket === "both" && !isForceOrder) {
+          targetCtx.save();
+          targetCtx.strokeStyle = ev.side === "BUY" 
+            ? "rgba(0, 255, 220, 0.7)" 
+            : "rgba(255, 200, 100, 0.7)";
+          targetCtx.lineWidth = 1;
+          targetCtx.beginPath();
+          // 다이아몬드 형태
+          const d = r + 3;
+          targetCtx.moveTo(x, y - d);
+          targetCtx.lineTo(x + d, y);
+          targetCtx.lineTo(x, y + d);
+          targetCtx.lineTo(x - d, y);
+          targetCtx.closePath();
+          targetCtx.stroke();
+          targetCtx.restore();
+        }
+
+        // RPI 거래 강조 표시
+        if (ev.isRPITrade) {
+          targetCtx.save();
+          const rpiColor = ev.side === "BUY" 
+            ? "rgba(0, 255, 200, 1)"    // 밝은 청록색 (매수)
+            : "rgba(255, 140, 0, 1)";   // 밝은 주황색 (매도)
+          
+          targetCtx.beginPath();
+          targetCtx.arc(x, y, r + 2, 0, Math.PI * 2);
+          targetCtx.strokeStyle = rpiColor;
+          targetCtx.lineWidth = 2.5;
+          targetCtx.stroke();
+          
+          const starSize = 3;
+          targetCtx.fillStyle = rpiColor;
+          targetCtx.beginPath();
+          targetCtx.moveTo(x, y - r - 4);
+          targetCtx.lineTo(x + starSize * 0.3, y - r - 2);
+          targetCtx.lineTo(x + starSize, y - r - 2);
+          targetCtx.lineTo(x + starSize * 0.5, y - r);
+          targetCtx.lineTo(x + starSize * 0.7, y - r + starSize * 0.7);
+          targetCtx.lineTo(x, y - r + starSize * 0.3);
+          targetCtx.lineTo(x - starSize * 0.7, y - r + starSize * 0.7);
+          targetCtx.lineTo(x - starSize * 0.5, y - r);
+          targetCtx.lineTo(x - starSize, y - r - 2);
+          targetCtx.lineTo(x - starSize * 0.3, y - r - 2);
+          targetCtx.closePath();
+          targetCtx.fill();
+          targetCtx.restore();
+        }
+      }
+
+      // 호버한 이벤트가 있으면 강조 및 정보 툴팁 표시 (메인에서만)
+      if (withHover && hoverEvent) {
+        const ev = hoverEvent.ev || hoverEvent;
+
+        // 현재 시간축 상태(tMin, timeSpan)에 맞춰 x,y를 매 프레임 재계산하여
+        // 마우스를 움직이지 않아도 하이라이트가 타임라인을 따라 움직이도록 함
+        const xRatio = (ev.midTime - tMin) / timeSpan;
+        const x = xRatio * w;
+        const y = calcY(ev.notional);
+
+        // 수직 라인 (해당 시간 위치 강조)
+        targetCtx.save();
+        targetCtx.strokeStyle = "rgba(255,255,255,0.25)";
+        targetCtx.lineWidth = 1;
+        targetCtx.beginPath();
+        targetCtx.moveTo(x, 0);
+        targetCtx.lineTo(x, h);
+        targetCtx.stroke();
+
+        // 점 테두리 강조
+        targetCtx.beginPath();
+        targetCtx.arc(x, y, 10, 0, Math.PI * 2);
+        targetCtx.strokeStyle = "rgba(255,255,255,0.8)";
+        targetCtx.lineWidth = 2;
+        targetCtx.stroke();
+
+        // 정보 박스
+        const date = new Date(ev.midTime);
+        const hh = String(date.getHours()).padStart(2, '0');
+        const mm = String(date.getMinutes()).padStart(2, '0');
+        const ss = String(date.getSeconds()).padStart(2, '0');
+        const ms = String(date.getMilliseconds()).padStart(3, '0');
+        const timeStr = `${hh}:${mm}:${ss}.${ms}`;
+        
+        // 마켓 타입 표시 (선물/현물)
+        const marketLabel = ev.market === "spot" ? "현물" : "선물";
+        let sideText = `${ev.symbol} ${ev.side} (${marketLabel})`;
+        if (ev.isForceOrder) {
+          sideText += ev.side === "SELL" ? ' ⚠️롱청산' : ' ⚠️숏청산';
+        } else if (ev.isRPITrade) {
+          sideText += ev.side === "BUY" ? ' 🌟RPI-매수' : ' 🌟RPI-매도';
+        }
+        if (ev.isLimitFill) {
+          sideText += ` 📌지정가${ev.limitFillPct ? `(${(ev.limitFillPct * 100).toFixed(0)}%)` : ''}`;
+        }
+        
+        const priceStr =
+          ev.avgPrice && Number.isFinite(ev.avgPrice)
+            ? ev.avgPrice.toFixed(ev.avgPrice >= 1000 ? 1 : ev.avgPrice >= 1 ? 2 : 4)
+            : "-";
+        const lines = [
+          sideText,
+          `수량≈${ev.qty.toFixed(3)}`,
+          `가격≈${priceStr}`,
+          `노셔널≈${formatComma(ev.notional)} USDT`,
+          `trade수=${ev.count}`,
+          `시간=${timeStr}`
+        ];
+
+        targetCtx.font = "11px system-ui";
+        targetCtx.textBaseline = "top";
+
+        let boxWidth = 0;
+        for (const line of lines) {
+          const wText = targetCtx.measureText(line).width;
+          if (wText > boxWidth) boxWidth = wText;
+        }
+        const padding = 6;
+        const boxHeight = lines.length * 14 + padding * 2;
+        boxWidth += padding * 2;
+
+        let boxX = x + 12;
+        let boxY = y - boxHeight - 12;
+        if (boxX + boxWidth > w - 4) boxX = w - boxWidth - 4;
+        if (boxY < 4) boxY = 4;
+        if (boxX < 4) boxX = 4;
+
+        targetCtx.fillStyle = "rgba(0,0,0,0.8)";
+        targetCtx.strokeStyle = "rgba(255,255,255,0.4)";
+        targetCtx.lineWidth = 1;
+        targetCtx.beginPath();
+        targetCtx.roundRect
+          ? targetCtx.roundRect(boxX, boxY, boxWidth, boxHeight, 6)
+          : targetCtx.rect(boxX, boxY, boxWidth, boxHeight);
+        targetCtx.fill();
+        targetCtx.stroke();
+
+        targetCtx.fillStyle = "#e5e5e5";
+        let ty = boxY + padding;
+        for (const line of lines) {
+          targetCtx.fillText(line, boxX + padding, ty);
+          ty += 14;
+        }
+
+        targetCtx.restore();
+      }
+
+      // 드래그 선택 직사각형 표시 (메인 컨텍스트에서만)
+      if (updateState && isDragging && dragStart && dragCurrent) {
+        const x1 = Math.min(dragStart.x, dragCurrent.x);
+        const x2 = Math.max(dragStart.x, dragCurrent.x);
+        const y1 = Math.min(dragStart.y, dragCurrent.y);
+        const y2 = Math.max(dragStart.y, dragCurrent.y);
+
+        targetCtx.save();
+        targetCtx.strokeStyle = "rgba(96, 165, 250, 0.9)";
+        targetCtx.lineWidth = 1;
+        targetCtx.setLineDash([6, 4]);
+        targetCtx.beginPath();
+        targetCtx.rect(x1, y1, x2 - x1, y2 - y1);
+        targetCtx.stroke();
+
+        targetCtx.fillStyle = "rgba(37, 99, 235, 0.12)";
+        targetCtx.fillRect(x1, y1, x2 - x1, y2 - y1);
+
+        targetCtx.restore();
+      }
+    }
+
+    // 메인 캔버스 그리기
+    function draw() {
+      const dpr = window.devicePixelRatio || 1;
+      const w = canvas.width / dpr;
+      const h = canvas.height / dpr;
+      renderTo(ctx, w, h, { withHover: true, updateState: true, pointScale: 1 });
+    }
+
+    // PiP 캔버스 그리기
+    function drawPip() {
+      if (!pipWindow || pipWindow.closed || !pipCanvas || !pipCtx) return;
+      const dpr = pipWindow.devicePixelRatio || window.devicePixelRatio || 1;
+      const w = pipCanvas.width / dpr;
+      const h = pipCanvas.height / dpr;
+      // PiP에서는 점을 더 작게 표시
+      renderTo(pipCtx, w, h, { withHover: false, updateState: false, pointScale: 0.6 });
+    }
+
+    // ===== 심볼 버튼 =====
+    symbolButtons.forEach(btn => {
+      btn.addEventListener("click", () => {
+        const market = btn.dataset.market || "futures";
+        const symbolsAttr = btn.dataset.symbols;
+        const symbolAttr = btn.dataset.symbol;
+        const symbols = symbolsAttr
+          ? symbolsAttr.split(",").map(s => s.trim()).filter(Boolean)
+          : null;
+        const symbol = symbolAttr || (symbols && symbols[0]);
+        symbolButtons.forEach(b => b.classList.toggle("active", b === btn));
+        connect(symbols || symbol, market);
+      });
+
+      // 우클릭: BTC, ETH 버튼에만 현물+선물 동시 연결
+      btn.addEventListener("contextmenu", (e) => {
+        const symbol = btn.dataset.symbol;
+        // data-symbol이 BTCUSDT 또는 ETHUSDT이고, data-market이 없는(선물) 버튼만 해당
+        if (symbol && (symbol === "BTCUSDT" || symbol === "ETHUSDT") && !btn.dataset.market) {
+          e.preventDefault(); // 기본 컨텍스트 메뉴 차단
+          symbolButtons.forEach(b => b.classList.toggle("active", b === btn));
+          connectBothMarkets(symbol);
+        }
+      });
+    });
+
+    function connectFuturesFromInput() {
+      const raw = (futuresSymbolInput.value || "").trim();
+      if (!raw) return;
+      const symbol = raw.toUpperCase();
+      // exchangeInfo 목록이 로드된 경우에는 검증
+      if (futuresSymbolSet.size && !futuresSymbolSet.has(symbol)) {
+        // 목록에 없으면 연결하지 않음 (오타 방지)
+        return;
+      }
+      futuresSymbolInput.value = symbol;
+      // 버튼 active는 해제 (입력 선택이므로)
+      symbolButtons.forEach(b => b.classList.remove("active"));
+      connect(symbol, "futures");
+    }
+
+    futuresSymbolInput.addEventListener("change", () => {
+      connectFuturesFromInput();
+    });
+    futuresSymbolInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        connectFuturesFromInput();
+      }
+    });
+    // 최초 연결
+      startAnimationLoop();
+      connect(currentSymbol, currentMarket);
+      loadFuturesExchangeInfo();
+      layout();
+  </script>
+</body>
+</html>
